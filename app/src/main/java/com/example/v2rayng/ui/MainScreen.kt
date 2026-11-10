@@ -77,7 +77,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                             scope.launch { drawerState.close() }
                         }
                     )
-                    Spacer(Modifier.weight(1f))
+                    // Add new menu items above About so it stays last in the list.
                     NavigationDrawerItem(
                         label = { Text("О приложении") },
                         selected = showAbout,
