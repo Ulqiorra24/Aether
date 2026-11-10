@@ -77,7 +77,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                             scope.launch { drawerState.close() }
                         }
                     )
-                    Spacer(Modifier.weight(1f))
+                    // Keep About last; insert future navigation items above it.
                     NavigationDrawerItem(
                         label = { Text("О приложении") },
                         selected = showAbout,
