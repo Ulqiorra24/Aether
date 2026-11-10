@@ -1,9 +1,9 @@
 # Aether (Android x-ui VPN Client)
 
-[![Download APK](https://img.shields.io/badge/Download-APK_v1.0-2EA043?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Ulqiorra24/Aether/releases/latest)
+[![Download APK](https://img.shields.io/badge/Download-APK_v0.1-2EA043?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Ulqiorra24/Aether/releases/latest)
 [![Release](https://img.shields.io/github/v/release/Ulqiorra24/Aether?style=for-the-badge&label=Latest%20Release&color=0969DA)](https://github.com/Ulqiorra24/Aether/releases/latest)
 
-> 📦 **[Скачать Aether APK (v1.0)](https://github.com/Ulqiorra24/Aether/releases/latest)** — официальный готов к установке файл релиза для Android.
+> 📦 **[Скачать Aether APK (v0.1)](https://github.com/Ulqiorra24/Aether/releases/latest)** — официальный готов к установке файл релиза для Android.
 
 ---
 
@@ -12,7 +12,7 @@ Android-клиент подписок x-ui / 3x-ui. VPN реализован ч�
 
 ## Подключение
 
-1. Добавьте аккаунт в настройках и обновите подписку.
+1. Откройте меню слева → «Настройки», добавьте аккаунт и обновите подписку.
 2. Выберите узел VLESS + REALITY.
 3. Нажмите подключение и подтвердите системное разрешение Android.
 4. Статус «Подключено» появляется после HTTPS-проверки через выбранный сервер.
@@ -33,6 +33,14 @@ Android-клиент подписок x-ui / 3x-ui. VPN реализован ч�
 Выбор узла и режима маршрутизации применяется до подключения.
 Автоматическое восстановление VPN после завершения процесса пока не реализовано.
 
+## Интерфейс и обновления
+
+В боковом меню доступны «Настройки» с выбором светлой, тёмной или системной темы и пункт «О приложении» с установленной версией.
+
+При запуске приложение проверяет последний опубликованный GitHub Release. Если версия новее установленной и к релизу прикреплён APK, появляется предложение обновиться. При загрузке отображаются проценты и скачанный объём. Установку подтверждает пользователь.
+
+Каждый успешный push в `main` публикует следующую версию: `v0.1`, `v0.2`, `v0.3` и далее. Ветка `test` собирается без публикации. Релизные APK подписываются постоянным ключом; правила хранения ключа описаны в [SIGNING.md](SIGNING.md).
+
 ## Сборка и проверки
 
 Требуются JDK 17+, Android SDK 37 и доступ к Maven/Google/GitHub.
@@ -41,7 +49,15 @@ Android-клиент подписок x-ui / 3x-ui. VPN реализован ч�
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ```
 
-APK: `app/build/outputs/apk/debug/app-debug.apk`.
+Debug APK: `app/build/outputs/apk/debug/app-debug.apk`.
+
+Подписанная сборка при наличии локального ключа:
+
+```bash
+./gradlew :app:assembleRelease
+```
+
+Release APK: `app/build/outputs/apk/release/app-release.apk`. В GitHub Releases файл называется `aether.apk`.
 
 Нативный smoke-тест на подключённом устройстве/эмуляторе проверяет загрузку
 Xray, конфигурацию REALITY, SOCKS handshake и повторный запуск ядра:
