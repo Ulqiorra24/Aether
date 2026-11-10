@@ -36,6 +36,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            resValue("string", "app_name", "Aether Debug")
+        }
         release {
             signingConfig = signingConfigs.getByName("aetherRelease")
             optimization {
@@ -50,7 +55,15 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
+        resValues = true
     }
+}
+
+// Firebase is currently unused. Its registered application is release-only;
+// do not reuse the release Firebase identity for the separate debug package.
+tasks.matching { it.name == "processDebugGoogleServices" }.configureEach {
+    enabled = false
 }
 
 dependencies {

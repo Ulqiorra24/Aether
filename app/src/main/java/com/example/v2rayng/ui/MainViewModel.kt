@@ -94,6 +94,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkForUpdates(context: android.content.Context) {
+        if (com.example.v2rayng.BuildConfig.DEBUG) return
         viewModelScope.launch {
             try {
                 val version = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
