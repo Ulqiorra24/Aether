@@ -39,8 +39,8 @@ android {
         release {
             signingConfig = signingConfigs.getByName("aetherRelease")
             optimization {
-                enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
+                // Partial library optimization caused IllegalAccessError in kotlin.text at startup.
+                enable = false
             }
         }
     }
