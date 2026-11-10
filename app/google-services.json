@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "35484998393",
+    "project_id": "v2raymg-3e364",
+    "storage_bucket": "v2raymg-3e364.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:35484998393:android:af979e9b39e600b3a0a028",
+        "android_client_info": {
+          "package_name": "com.example.v2rayng"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDveDh0oZuljaRfup0xUVmdatIHcNm37wk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
