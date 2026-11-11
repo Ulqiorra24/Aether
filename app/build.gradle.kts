@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.v2rayng"
         minSdk = 24
         targetSdk = 37
-        versionCode = providers.gradleProperty("aetherVersionCode").orElse("4").get().toInt()
-        versionName = providers.gradleProperty("aetherVersionName").orElse("0.1").get()
+        versionCode = providers.gradleProperty("aetherVersionCode").orElse("5").get().toInt()
+        versionName = providers.gradleProperty("aetherVersionName").orElse("0.2").get()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -1,10 +1,11 @@
 package com.example.v2rayng.ui
 
 import android.app.Activity
-import android.content.Intent
 import android.net.VpnService
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -15,10 +16,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.launch
@@ -27,6 +32,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -39,14 +49,30 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun MainScreen(viewModel: MainViewModel = viewModel()) {
     val context = LocalContext.current
-    val scrollState = rememberScrollState()
-    var showSettings by rememberSaveable { mutableStateOf(false) }
-    var showAbout by rememberSaveable { mutableStateOf(false) }
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    val homeScroll = rememberScrollState()
+    val profileScroll = rememberScrollState()
+    val settingsScroll = rememberScrollState()
+    val scrollState = when (selectedTab) { 1 -> profileScroll; 2 -> settingsScroll; else -> homeScroll }
+    var coreVersion by rememberSaveable { mutableStateOf("Загрузка…") }
+    LaunchedEffect(Unit) {
+        coreVersion = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                libv2ray.Libv2ray.checkVersionX().ifBlank { "Недоступна" }
+            } catch (_: LinkageError) {
+                "Недоступна"
+            } catch (_: Exception) {
+                "Недоступна"
+            }
+        }
+    }
+    var showServers by rememberSaveable { mutableStateOf(false) }
+    val palette = MaterialTheme.colorScheme
+    val dark = palette.background.luminance() < 0.5f
     val versionName = remember(context) {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "—"
     }
+    var accountToDelete by rememberSaveable { mutableStateOf<String?>(null) }
     var showAddAccountDialog by remember { mutableStateOf(false) }
     var newAccountUsername by remember { mutableStateOf("") }
 
@@ -60,48 +86,47 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
         }
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet {
-                Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState()).padding(16.dp)) {
-                    Text("Aether", style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold, modifier = Modifier.padding(12.dp))
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                    NavigationDrawerItem(
-                        label = { Text("Настройки") },
-                        selected = showSettings,
-                        icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                        onClick = {
-                            showSettings = true
-                            scope.launch { drawerState.close() }
-                        }
+    Scaffold(
+        containerColor = Color.Transparent,
+        modifier = Modifier.background(palette.background).drawBehind {
+            drawRect(Brush.radialGradient(
+                listOf(Color(0xFF7928CA).copy(alpha = if (dark) 0.36f else 0.12f), Color.Transparent),
+                center = Offset(size.width, size.height * 0.12f), radius = size.width * 0.95f
+            ))
+            drawRect(Brush.radialGradient(
+                listOf(Color(0xFF9B2DC3).copy(alpha = if (dark) 0.22f else 0.09f), Color.Transparent),
+                center = Offset(0f, size.height * 0.85f), radius = size.width
+            ))
+        },
+        bottomBar = {
+            Surface(
+                modifier = Modifier.navigationBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp),
+                shape = RoundedCornerShape(32.dp),
+                color = palette.surfaceVariant.copy(alpha = 0.95f),
+                border = BorderStroke(1.dp, palette.outlineVariant)
+            ) {
+                NavigationBar(containerColor = Color.Transparent, windowInsets = WindowInsets(0, 0, 0, 0)) {
+                    val tabs = listOf(
+                        "Главная" to Icons.Default.Home,
+                        "Профиль" to Icons.Default.Person,
+                        "Настройки" to Icons.Default.Settings
                     )
-                    // Keep About last; insert future navigation items above it.
-                    NavigationDrawerItem(
-                        label = { Text("О приложении") },
-                        selected = showAbout,
-                        icon = { Icon(Icons.Default.Info, contentDescription = null) },
-                        onClick = {
-                            showAbout = true
-                            scope.launch { drawerState.close() }
-                        }
-                    )
+                    tabs.forEachIndexed { index, (title, icon) ->
+                        NavigationBarItem(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            icon = { Icon(icon, contentDescription = null) },
+                            label = { Text(title, maxLines = 1) }
+                        )
+                    }
                 }
             }
-        }
-    ) {
-    Scaffold(
+        },
         topBar = {
-            TopAppBar(
-                title = { Text("Aether", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                        Icon(Icons.Default.Menu, contentDescription = "Открыть меню")
-                    }
-                },
+            CenterAlignedTopAppBar(
+                title = { Text("Aether", fontWeight = FontWeight.Bold, letterSpacing = 1.sp) },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
@@ -111,55 +136,159 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 20.dp)
-                .verticalScroll(scrollState),
+                .verticalScroll(scrollState)
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (showSettings) {
-                ModalBottomSheet(onDismissRequest = { showSettings = false }) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+
+            when (selectedTab) {
+                0 -> {
+            Surface(
+                shape = CircleShape,
+                color = palette.surface.copy(alpha = 0.7f),
+                border = BorderStroke(1.dp, palette.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.size(6.dp).background(
+                        if (viewModel.isConnected) Color(0xFF58D9AF) else palette.onSurfaceVariant, CircleShape))
+                    Text(
+                        if (viewModel.isConnected) "Соединение защищено" else "Ваше личное пространство",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = palette.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+            Box(
+                modifier = Modifier.size(220.dp)
+                    .border(1.dp, palette.primary.copy(alpha = 0.22f), RoundedCornerShape(68.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(Modifier.size(188.dp)
+                    .border(1.dp, palette.primary.copy(alpha = 0.12f), RoundedCornerShape(56.dp)))
+                Surface(
+                    onClick = {
+                        if (!viewModel.isConnected && !viewModel.isConnecting) {
+                            val intent = VpnService.prepare(context)
+                            if (intent != null) vpnPermissionLauncher.launch(intent)
+                            else viewModel.startVpnService(context)
+                        } else viewModel.toggleVpn(context)
+                    },
+                    enabled = !viewModel.isStopping,
+                    modifier = Modifier.size(152.dp),
+                    shape = RoundedCornerShape(44.dp),
+                    color = if (viewModel.isConnected) palette.primaryContainer else palette.surfaceVariant,
+                    border = BorderStroke(1.dp, palette.primary.copy(alpha = 0.4f))
                 ) {
-                    Column(
-                        modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Text("Настройки и аккаунты", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-
-                        Text("Тема оформления", style = MaterialTheme.typography.labelMedium)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            val themes = mapOf("Dark" to "Темная", "Light" to "Светлая", "System" to "Системная")
-                            themes.forEach { (key, label) ->
-                                val selected = viewModel.themeMode == key
-                                OutlinedButton(
-                                    onClick = { viewModel.updateThemeMode(key) },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                                    )
-                                ) {
-                                    Text(label, fontSize = 11.sp, maxLines = 1)
-                                }
-                            }
+                    Box(contentAlignment = Alignment.Center) {
+                        if (viewModel.isConnecting || viewModel.isStopping) {
+                            CircularProgressIndicator(Modifier.size(90.dp), strokeWidth = 2.dp)
                         }
+                        Icon(Icons.Default.PowerSettingsNew,
+                            contentDescription = when {
+                                viewModel.isStopping -> "Отключение"
+                                viewModel.isConnecting -> "Отменить подключение"
+                                viewModel.isConnected -> "Отключить VPN"
+                                else -> "Подключить VPN"
+                            },
+                            modifier = Modifier.size(64.dp),
+                            tint = if (viewModel.isConnected) palette.primary else palette.onSurface)
+                    }
+                }
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    when {
+                        viewModel.isConnecting -> "Подключаемся…"
+                        viewModel.isStopping -> "Отключаемся…"
+                        viewModel.isConnected -> "Вы подключены"
+                        else -> "Готовы к подключению"
+                    },
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center
+                )
+                Text(viewModel.statusMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = palette.onSurfaceVariant, textAlign = TextAlign.Center)
+                if (viewModel.username.isNotBlank()) {
+                    Text(
+                        text = "Осталось дней: ${viewModel.subscriptionDaysRemaining ?: "—"}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = palette.primary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+            Spacer(Modifier.height(20.dp))
 
-                        HorizontalDivider()
+            val selectedNode = viewModel.nodes.getOrNull(viewModel.selectedNodeIndex)
+            Surface(
+                onClick = {
+                    when {
+                        viewModel.accounts.isEmpty() -> showAddAccountDialog = true
+                        viewModel.nodes.isEmpty() -> selectedTab = 1
+                        else -> showServers = true
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = palette.surface.copy(alpha = 0.85f),
+                border = BorderStroke(1.dp, palette.outlineVariant)
+            ) {
+                Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Surface(shape = RoundedCornerShape(16.dp), color = palette.primaryContainer) {
+                        Icon(Icons.Default.Dns, null, Modifier.padding(12.dp).size(24.dp),
+                            tint = palette.onPrimaryContainer)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("СЕРВЕР", style = MaterialTheme.typography.labelSmall,
+                            letterSpacing = 1.5.sp, color = palette.onSurfaceVariant)
+                        Text(selectedNode?.name ?: "Добавьте подписку",
+                            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(selectedNode?.let {
+                            if (it.latencyMs >= 0) "${it.latencyMs} мс · Выбрать сервер"
+                            else "Задержка недоступна · Выбрать сервер"
+                        } ?: "Добавьте ключ подписки для подключения",
+                            style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
+                    }
+                    Icon(Icons.Default.ChevronRight, null, tint = palette.onSurfaceVariant)
+                }
+            }
 
+
+                }
+                1 -> {
+                    Text("Профиль", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.fillMaxWidth())
+                    Surface(shape = RoundedCornerShape(24.dp), color = palette.surface.copy(alpha = 0.8f),
+                        border = BorderStroke(1.dp, palette.outlineVariant), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Текущая подписка", color = palette.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelLarge)
+                            Text(viewModel.username.ifBlank { "Подписка не добавлена" },
+                                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text(if (viewModel.username.isBlank()) "Добавьте ключ, чтобы получить список серверов"
+                                else "Серверов в подписке: ${viewModel.nodes.size}",
+                                style = MaterialTheme.typography.bodyMedium, color = palette.onSurfaceVariant)
+                        }
+                    }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Аккаунты / Подписки", style = MaterialTheme.typography.titleSmall)
+                            Text("Подписки", style = MaterialTheme.typography.titleSmall)
                             IconButton(onClick = { showAddAccountDialog = true }) {
-                                Icon(Icons.Default.Add, contentDescription = "Добавить аккаунт")
+                                Icon(Icons.Default.Add, contentDescription = "Добавить подписку")
                             }
                         }
 
@@ -188,18 +317,16 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                                             color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.weight(1f)
                                         )
-                                        if (viewModel.accounts.size > 1) {
-                                            IconButton(
-                                                onClick = { viewModel.removeAccount(acc) },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Delete,
-                                                    contentDescription = "Удалить аккаунт",
-                                                    tint = MaterialTheme.colorScheme.error,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
+                                        IconButton(
+                                            onClick = { accountToDelete = acc },
+                                            modifier = Modifier.size(48.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = "Удалить подписку",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(20.dp)
+                                            )
                                         }
                                     }
                                 }
@@ -209,7 +336,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         Button(
                             onClick = { viewModel.fetchSubscription() },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = !viewModel.isLoading,
+                            enabled = !viewModel.isLoading && viewModel.username.isNotBlank(),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             if (viewModel.isLoading) {
@@ -218,21 +345,86 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                             }
                             Text("Обновить текущую подписку")
                         }
+                }
+                2 -> {
+                    Text("Настройки", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.fillMaxWidth())
+                    Surface(shape = RoundedCornerShape(24.dp), color = palette.surface.copy(alpha = 0.8f),
+                        border = BorderStroke(1.dp, palette.outlineVariant), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Тема оформления", style = MaterialTheme.typography.labelMedium)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val themes = mapOf("Dark" to "Темная", "Light" to "Светлая", "System" to "Системная")
+                            themes.forEach { (key, label) ->
+                                val selected = viewModel.themeMode == key
+                                OutlinedButton(
+                                    onClick = { viewModel.updateThemeMode(key) },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                    )
+                                ) {
+                                    Text(label, fontSize = 11.sp, maxLines = 1)
+                                }
+                            }
+                        }
+                        }
+                    }
+            Card(
+                modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = palette.surface.copy(alpha = 0.75f)),
+                border = BorderStroke(1.dp, palette.outlineVariant.copy(alpha = 0.7f))
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.Shield, null, Modifier.size(18.dp), tint = palette.primary)
+                        Text("Режим трафика", style = MaterialTheme.typography.labelLarge)
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        mapOf("Global (Proxy All)" to "Весь трафик", "Bypass LAN" to "Обход LAN").forEach { (key, label) ->
+                            val selected = viewModel.routingMode == key
+                            FilterChip(
+                                selected = selected,
+                                onClick = { viewModel.updateRoutingMode(key, context) },
+                                label = { Text(label, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                        }
                     }
                 }
             }
 
+                    Spacer(Modifier.height(24.dp))
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Aether · $versionName", style = MaterialTheme.typography.bodyMedium,
+                            color = palette.onSurfaceVariant)
+                        Text("Ядро Xray · $coreVersion", style = MaterialTheme.typography.bodySmall,
+                            color = palette.onSurfaceVariant, textAlign = TextAlign.Center)
+                    }
+                }
             }
+
+
+        }
+    }
 
             if (showAddAccountDialog) {
                 AlertDialog(
                     onDismissRequest = { showAddAccountDialog = false },
-                    title = { Text("Добавить новый аккаунт") },
+                    title = { Text("Добавить подписку") },
                     text = {
                         OutlinedTextField(
                             value = newAccountUsername,
                             onValueChange = { newAccountUsername = it },
-                            label = { Text("Имя пользователя (ник в x-ui)") },
+                            label = { Text("Ключ подписки") },
                             singleLine = true
                         )
                     },
@@ -255,161 +447,49 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
 
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(180.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (viewModel.isConnected)
-                            MaterialTheme.colorScheme.errorContainer
-                        else
-                            MaterialTheme.colorScheme.primaryContainer
-                    )
-            ) {
-                FilledIconButton(
-                    onClick = {
-                        if (!viewModel.isConnected && !viewModel.isConnecting) {
-                            val intent = VpnService.prepare(context)
-                            if (intent != null) {
-                                vpnPermissionLauncher.launch(intent)
-                            } else {
-                                viewModel.startVpnService(context)
-                            }
-                        } else {
-                            viewModel.toggleVpn(context)
-                        }
-                    },
-                    enabled = !viewModel.isStopping,
-                    modifier = Modifier.size(140.dp),
-                    shape = CircleShape,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = if (viewModel.isConnected)
-                            MaterialTheme.colorScheme.error
-                        else
-                            MaterialTheme.colorScheme.primary
-                    )
-                ) {
-                    Icon(
-                        imageVector = if (viewModel.isConnected) Icons.Default.Lock else Icons.Default.PlayArrow,
-                        contentDescription = "Подключение",
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onPrimary
-                    )
-                }
-            }
 
-            Text(
-                text = when {
-                    viewModel.isConnecting -> "ПОДКЛЮЧЕНИЕ…"
-                    viewModel.isStopping -> "ОТКЛЮЧЕНИЕ…"
-                    viewModel.isConnected -> "ПОДКЛЮЧЕНО"
-                    else -> "ОТКЛЮЧЕНО"
-                },
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = if (viewModel.isConnected) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-            )
 
-            Text(
-                text = viewModel.statusMessage,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Direct Nodes List on Screen (Replacing Dropdown)
-            if (viewModel.nodes.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Доступные узлы (${viewModel.username})",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    IconButton(onClick = { viewModel.pingNodes() }, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Проверить пинг", tint = MaterialTheme.colorScheme.primary)
+    if (showServers) {
+        ModalBottomSheet(onDismissRequest = { showServers = false }) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp).padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Выберите сервер", style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold)
+                        Text("${viewModel.nodes.size} доступно · ${viewModel.username}",
+                            style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
+                    }
+                    IconButton(onClick = { viewModel.pingNodes() }) {
+                        Icon(Icons.Default.Refresh, "Проверить задержку")
                     }
                 }
-
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    viewModel.nodes.forEachIndexed { index, node ->
-                        val isSelected = index == viewModel.selectedNodeIndex
-                        val pingText = if (node.latencyMs >= 0) "${node.latencyMs} мс" else "Нет связи"
-
-                        Surface(
-                            onClick = { viewModel.selectNode(index, context) },
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = node.name,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = pingText,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                RadioButton(
-                                    selected = isSelected,
-                                    onClick = { viewModel.selectNode(index, context) }
-                                )
-                            }
-                        }
-                    }
+                TextButton(onClick = {
+                    showServers = false
+                    selectedTab = 1
+                }) {
+                    Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Управление подписками")
                 }
-            }
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("Маршрутизация", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                viewModel.nodes.forEachIndexed { index, node ->
+                    val selected = index == viewModel.selectedNodeIndex
+                    Surface(
+                        onClick = { viewModel.selectNode(index, context); showServers = false },
+                        shape = RoundedCornerShape(18.dp),
+                        color = if (selected) palette.primaryContainer else palette.surfaceVariant
                     ) {
-                        val routingModes = mapOf("Global (Proxy All)" to "Весь трафик", "Bypass LAN" to "Обход LAN")
-                        routingModes.forEach { (key, label) ->
-                            val selected = viewModel.routingMode == key
-                            OutlinedButton(
-                                onClick = { viewModel.updateRoutingMode(key, context) },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                                )
-                            ) {
-                                Text(label, fontSize = 12.sp, maxLines = 1)
+                        Row(Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(node.name, fontWeight = FontWeight.Medium)
+                                Text(if (node.latencyMs >= 0) "${node.latencyMs} мс" else "Задержка недоступна",
+                                    style = MaterialTheme.typography.bodySmall)
                             }
+                            RadioButton(selected = selected, onClick = null)
                         }
                     }
                 }
@@ -417,14 +497,20 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
         }
     }
 
-    }
-
-    if (showAbout) {
+    accountToDelete?.let { account ->
         AlertDialog(
-            onDismissRequest = { showAbout = false },
-            title = { Text("О приложении") },
-            text = { Text("Aether\nВерсия $versionName") },
-            confirmButton = { TextButton(onClick = { showAbout = false }) { Text("Закрыть") } }
+            onDismissRequest = { accountToDelete = null },
+            title = { Text("Удалить подписку?") },
+            text = { Text("Ключ будет удалён с этого устройства. Его можно добавить снова.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.removeAccount(account, context)
+                    accountToDelete = null
+                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { accountToDelete = null }) { Text("Отмена") }
+            }
         )
     }
 

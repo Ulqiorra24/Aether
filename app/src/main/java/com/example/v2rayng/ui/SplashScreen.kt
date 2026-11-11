@@ -113,7 +113,7 @@ fun SplashScreen(onSplashFinished: () -> Unit) {
                 contentAlignment = Alignment.Center,
             ) {
                 Image(
-                    painter = painterResource(id = R.mipmap.aether_foreground),
+                    painter = painterResource(id = R.drawable.aether_logo),
                     contentDescription = "Aether Logo",
                     modifier = Modifier.fillMaxSize(),
                 )

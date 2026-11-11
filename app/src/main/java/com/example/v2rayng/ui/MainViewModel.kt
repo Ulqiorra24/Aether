@@ -17,6 +17,7 @@ import com.example.v2rayng.vpn.V2RayConfigParser
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -53,6 +54,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var nodes by mutableStateOf<List<VpnNode>>(emptyList())
         private set
 
+    private val remainingDaysPattern = Regex("""[⏳⌛]\uFE0F?\s*(\d+)\s*[dD](?![\p{L}\p{N}])""")
+
+    // Subscription-provided snapshot, refreshed with the server list.
+    val subscriptionDaysRemaining: Int?
+        get() = nodes.firstNotNullOfOrNull { node ->
+            remainingDaysPattern.find(node.name)?.groupValues?.get(1)?.toIntOrNull()
+        }
+
     var selectedNodeIndex by mutableIntStateOf(0)
         private set
 
@@ -88,7 +97,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else if (username.isNotBlank()) {
             fetchSubscriptionFor(username)
         } else {
-            statusMessage = "Добавьте аккаунт в настройках"
+            statusMessage = "Добавьте подписку для подключения"
         }
         checkForUpdates(application)
     }
@@ -169,15 +178,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private var reconnectJob: Job? = null
+    private var subscriptionJob: Job? = null
+    private var pingJob: Job? = null
 
     fun selectAccount(newUsername: String, context: android.content.Context? = null) {
+        subscriptionJob?.cancel()
+        pingJob?.cancel()
+        isLoading = false
         val wasActive = isConnected || isConnecting || isStopping
         username = newUsername
         prefs.currentUsername = newUsername
         if (newUsername.isBlank()) {
             subscriptionContent = ""
             nodes = emptyList()
-            statusMessage = "Добавьте аккаунт в настройках"
+            statusMessage = "Добавьте подписку для подключения"
             return
         }
         subscriptionContent = prefs.getSubscription(newUsername)
@@ -213,19 +227,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun removeAccount(targetUsername: String, context: android.content.Context? = null) {
-        val updated = accounts.filter { it != targetUsername }
-        accounts = updated
-        prefs.accounts = updated
-        if (updated.isNotEmpty()) {
-            if (username == targetUsername) {
-                selectAccount(updated.first(), context)
-            }
+        if (targetUsername !in accounts) return
+        val wasSelected = username == targetUsername
+        accounts = accounts.filter { it != targetUsername }
+        prefs.accounts = accounts
+        prefs.removeSubscription(targetUsername)
+        if (!wasSelected) return
+
+        reconnectJob?.cancel()
+        subscriptionJob?.cancel()
+        pingJob?.cancel()
+        isLoading = false
+        val appContext = context ?: getApplication<Application>()
+        if (accounts.isNotEmpty()) {
+            selectAccount(accounts.first(), appContext)
         } else {
+            if (isConnected || isConnecting || isStopping) {
+                appContext.startService(Intent(appContext, V2RayVpnService::class.java).apply {
+                    action = V2RayVpnService.ACTION_STOP
+                })
+            }
             username = ""
             prefs.currentUsername = ""
             subscriptionContent = ""
             nodes = emptyList()
-            statusMessage = "Добавьте аккаунт в настройках"
+            selectedNodeIndex = 0
+            statusMessage = "Добавьте подписку для подключения"
         }
     }
 
@@ -277,11 +304,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        subscriptionJob?.cancel()
         isLoading = true
         statusMessage = "Загрузка подписки для $targetUser..."
 
-        viewModelScope.launch {
+        subscriptionJob = viewModelScope.launch {
             val result = repository.fetchSubscription(fixedHost, targetUser)
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if (targetUser != username || targetUser !in accounts) return@launch
             isLoading = false
             result.onSuccess { content ->
                 subscriptionContent = content
@@ -335,8 +365,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun pingNodes() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val updatedNodes = nodes.map { node ->
+        pingJob?.cancel()
+        val sourceNodes = nodes
+        pingJob = viewModelScope.launch(Dispatchers.IO) {
+            val updatedNodes = sourceNodes.map { node ->
                 val latency = measureLatency(node.uri)
                 node.copy(latencyMs = latency)
             }

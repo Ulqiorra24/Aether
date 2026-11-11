@@ -42,6 +42,10 @@ class VpnPrefs(context: Context) {
         }
     }
 
+    fun removeSubscription(username: String) {
+        prefs.edit().remove("sub_$username").apply()
+    }
+
     var themeMode: String // "Dark", "Light", "System"
         get() = prefs.getString("theme_mode", "Dark") ?: "Dark"
         set(value) = prefs.edit().putString("theme_mode", value).apply()
