@@ -1,16 +1,16 @@
 # Aether (Android x-ui VPN Client)
 
-[![Download APK](https://img.shields.io/badge/Download-APK_v0.3-2EA043?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Ulqiorra24/Aether/releases/latest)
+[![Download APK](https://img.shields.io/badge/Download-APK_v0.4-2EA043?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Ulqiorra24/Aether/releases/latest)
 [![Release](https://img.shields.io/github/v/release/Ulqiorra24/Aether?style=for-the-badge&label=Latest%20Release&color=0969DA)](https://github.com/Ulqiorra24/Aether/releases/latest)
 
-> 📦 **[Скачать Aether APK (v0.3)](https://github.com/Ulqiorra24/Aether/releases/latest)** — официальный готов к установке файл релиза для Android.
+> 📦 **[Скачать Aether APK (v0.4)](https://github.com/Ulqiorra24/Aether/releases/latest)** — официальный готов к установке файл релиза для Android.
 
 ---
 
 Android-клиент подписок x-ui / 3x-ui. VPN реализован через Xray-core
 (AndroidLibXrayLite) и встроенный TUN inbound.
 
-## Что нового в v0.3
+## Что нового в v0.4
 
 - 🔐 **Личный кабинет и авторизация**:
   - Вход по Email (логин) и Паролю.
@@ -26,7 +26,7 @@ Android-клиент подписок x-ui / 3x-ui. VPN реализован ч�
 - 🛡️ **Обфускация и безопасность**:
   - Шифрование служебных хостов и конфигурационных адресов в бинарнике (XOR-обфускация).
 
-## Что было в v0.2
+## Что было в v0.2 – v0.3
 
 - 🎨 **Новый современный UI (Material 3)**: нижняя панель навигации (Главная, Подписки, Настройки), фоновые градиенты и обновлённая цветовая палитра.
 - 🌐 **Удобный выбор серверов**: модальная шторка (ModalBottomSheet) со списком узлов и проверкой пинга (задержки).
