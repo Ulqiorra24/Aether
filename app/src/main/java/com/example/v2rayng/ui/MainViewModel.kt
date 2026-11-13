@@ -144,21 +144,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openPaymentUrl(context: android.content.Context, months: Int) {
-        val user = username.ifBlank { accounts.firstOrNull() ?: "" }
+        val user = userEmail.ifBlank { username.ifBlank { accounts.firstOrNull() ?: "" } }
         if (user.isBlank()) {
-            statusMessage = "Сначала добавьте подписку"
+            statusMessage = "Сначала выполните вход"
             return
         }
-        val encodedUser = java.net.URLEncoder.encode(user, "UTF-8")
-        val baseUrl = fixedHost.substringBefore(":2096")
-        val paymentUrl = "$baseUrl/pay?user=$encodedUser&months=$months&type=sbp"
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(paymentUrl)).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        viewModelScope.launch {
+            try {
+                val encodedUser = java.net.URLEncoder.encode(user, "UTF-8")
+                val requestUrl = "$fixedHost/api/pay/create?email=$encodedUser&months=$months"
+                val paymentUrl = withContext(Dispatchers.IO) {
+                    try {
+                        val conn = (java.net.URL(requestUrl).openConnection() as java.net.HttpURLConnection).apply {
+                            requestMethod = "GET"
+                            connectTimeout = 8000
+                            readTimeout = 8000
+                        }
+                        if (conn.responseCode == 200) {
+                            val response = conn.inputStream.bufferedReader().readText()
+                            org.json.JSONObject(response).optString("payment_url")
+                        } else null
+                    } catch (_: Exception) { null }
+                } ?: "$fixedHost/api/pay/create?email=$encodedUser&months=$months"
+
+                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(paymentUrl)).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+            } catch (_: Exception) {
+                statusMessage = "Не удалось открыть браузер для оплаты"
             }
-            context.startActivity(intent)
-        } catch (_: Exception) {
-            statusMessage = "Не удалось открыть браузер для оплаты"
         }
     }
 
