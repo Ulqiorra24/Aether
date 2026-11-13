@@ -10,7 +10,7 @@ class V2RayConfigParserTest {
         "&sid=aabb&sni=www.example.com&fp=chrome&type=tcp&flow=xtls-rprx-vision"
 
     @Test fun realityParametersReachCoreAndTunIsEnabled() {
-        val config = JSONObject(V2RayConfigParser.createConfig(V2RayConfigParser.parse(link), false))
+        val config = JSONObject(V2RayConfigParser.createConfig(V2RayConfigParser.parse(link), bypassLan = false, bypassRu = false))
         val outbound = config.getJSONArray("outbounds").getJSONObject(0)
         val stream = outbound.getJSONObject("streamSettings")
         assertEquals("reality", stream.getString("security"))
@@ -38,10 +38,20 @@ class V2RayConfigParserTest {
     }
 
     @Test fun bypassLanUsesExplicitRoutesWithoutGeoAssets() {
-        val config = JSONObject(V2RayConfigParser.createConfig(V2RayConfigParser.parse(link), true))
+        val config = JSONObject(V2RayConfigParser.createConfig(V2RayConfigParser.parse(link), bypassLan = true, bypassRu = false))
         val rule = config.getJSONObject("routing").getJSONArray("rules").getJSONObject(0)
         assertEquals("direct", rule.getString("outboundTag"))
         assertTrue(rule.getJSONArray("ip").toString().contains("192.168.0.0/16"))
+    }
+
+    @Test fun bypassRuAddsRuDomainsToDirectRouting() {
+        val config = JSONObject(V2RayConfigParser.createConfig(V2RayConfigParser.parse(link), bypassLan = false, bypassRu = true))
+        val rules = config.getJSONObject("routing").getJSONArray("rules")
+        assertEquals(1, rules.length())
+        val rule = rules.getJSONObject(0)
+        assertEquals("direct", rule.getString("outboundTag"))
+        assertTrue(rule.getJSONArray("domain").toString().contains("domain:ru"))
+        assertTrue(rule.getJSONArray("domain").toString().contains("domain:gosuslugi.ru"))
     }
 
     @Test fun grpcServiceNameReachesCore() {
@@ -90,7 +100,7 @@ class V2RayConfigParserTest {
 
         for (linkItem in subscriptionLinks) {
             val node = V2RayConfigParser.parse(linkItem)
-            val jsonConfig = V2RayConfigParser.createConfig(node, false)
+            val jsonConfig = V2RayConfigParser.createConfig(node, bypassLan = false, bypassRu = false)
             val configObj = JSONObject(jsonConfig)
             assertTrue(configObj.has("outbounds"))
         }

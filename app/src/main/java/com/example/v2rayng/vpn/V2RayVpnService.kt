@@ -32,6 +32,13 @@ data class VpnStatus(
     val message: String = "Готов к подключению"
 )
 
+data class VpnLogEntry(
+    val id: Long,
+    val time: String,
+    val tag: String, // "TCP", "UDP", "DIRECT", "PROXY", "INFO", "WARN", "ERROR"
+    val message: String
+)
+
 class V2RayVpnService : VpnService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var tunInterface: ParcelFileDescriptor? = null
@@ -49,6 +56,20 @@ class V2RayVpnService : VpnService() {
         private val mutableStatus = MutableStateFlow(VpnStatus())
         val status = mutableStatus.asStateFlow()
         val isConnected: Boolean get() = status.value.phase == VpnPhase.CONNECTED
+
+        private val mutableLogs = MutableStateFlow<List<VpnLogEntry>>(emptyList())
+        val logs = mutableLogs.asStateFlow()
+        private var logCounter = 0L
+
+        fun addLog(tag: String, message: String) {
+            val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+            val entry = VpnLogEntry(++logCounter, timeStr, tag, message)
+            mutableLogs.value = (listOf(entry) + mutableLogs.value).take(300)
+        }
+
+        fun clearLogs() {
+            mutableLogs.value = emptyList()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -69,7 +90,11 @@ class V2RayVpnService : VpnService() {
             return START_NOT_STICKY
         }
         val uri = intent.getStringExtra("NODE_URI").orEmpty()
-        val bypassLan = intent.getStringExtra("ROUTING_MODE") == "Bypass LAN"
+        val bypassLan = intent.getBooleanExtra("BYPASS_LAN", true)
+        val bypassRu = intent.getBooleanExtra("BYPASS_RU", true)
+
+        addLog("INFO", "Запуск VPN (LAN bypass=$bypassLan, RU bypass=$bypassRu)")
+
         scope.launch {
             var errorMessage: String? = null
             withContext(Dispatchers.IO) {
@@ -77,14 +102,30 @@ class V2RayVpnService : VpnService() {
                     try {
                         check(prepare(this@V2RayVpnService) == null) { "Разрешение VPN отозвано" }
                         val node = V2RayConfigParser.parse(uri)
-                        val config = V2RayConfigParser.createConfig(node, bypassLan)
+                        addLog("INFO", "Узел: ${node.name}")
+                        val config = V2RayConfigParser.createConfig(node, bypassLan, bypassRu)
                         Seq.setContext(applicationContext)
                         Libv2ray.initCoreEnv(filesDir.absolutePath, "")
                         core = Libv2ray.newCoreController(object : CoreCallbackHandler {
                             override fun startup(): Long = 0
                             override fun shutdown(): Long = 0
-                            // Do not log core messages: they can contain server credentials.
-                            override fun onEmitStatus(code: Long, message: String?): Long = 0
+                            override fun onEmitStatus(code: Long, message: String?): Long {
+                                message?.let { raw ->
+                                    if (raw.isNotBlank()) {
+                                        val tag = when {
+                                            raw.contains("udp:", ignoreCase = true) -> "UDP"
+                                            raw.contains("tcp:", ignoreCase = true) -> "TCP"
+                                            raw.contains("direct", ignoreCase = true) || raw.contains("freedom", ignoreCase = true) -> "DIRECT"
+                                            raw.contains("proxy", ignoreCase = true) || raw.contains("vless", ignoreCase = true) -> "PROXY"
+                                            raw.contains("[Warning]", ignoreCase = true) -> "WARN"
+                                            raw.contains("[Error]", ignoreCase = true) -> "ERROR"
+                                            else -> "INFO"
+                                        }
+                                        addLog(tag, raw.trim())
+                                    }
+                                }
+                                return 0
+                            }
                         })
                         if (stopRequested) return@withLock
                         tunInterface = Builder()
@@ -99,8 +140,10 @@ class V2RayVpnService : VpnService() {
                             // Core sockets and subscription requests must use the underlying network.
                             .addDisallowedApplication(packageName)
                             .establish() ?: error("Не удалось создать VPN-интерфейс")
+                        addLog("INFO", "Создан TUN интерфейс 10.0.0.2")
                         core!!.startLoop(config, tunInterface!!.fd)
                         check(core!!.isRunning) { "Ядро VPN не запустилось" }
+                        addLog("INFO", "Ядро Xray запущен")
                         if (!stopRequested) verifyProxyConnection()
                     } catch (e: IllegalArgumentException) {
                         errorMessage = e.message ?: "Некорректная конфигурация сервера"
@@ -117,10 +160,12 @@ class V2RayVpnService : VpnService() {
             starting = false
             if (stopRequested) return@launch
             if (errorMessage != null) {
+                addLog("ERROR", errorMessage!!)
                 mutableStatus.value = VpnStatus(VpnPhase.ERROR, errorMessage!!)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             } else {
+                addLog("INFO", "VPN успешно подключён!")
                 mutableStatus.value = VpnStatus(VpnPhase.CONNECTED, "VPN подключён. Соединение через сервер проверено.")
                 startForeground(NOTIFICATION_ID, notification("VPN подключён"))
             }
@@ -157,10 +202,12 @@ class V2RayVpnService : VpnService() {
         if (stopping) return
         stopping = true
         stopRequested = true
+        addLog("INFO", "Остановка VPN...")
         mutableStatus.value = VpnStatus(VpnPhase.STOPPING, "Отключение…")
         runCatching { probeSocket?.close() }
         scope.launch {
             withContext(Dispatchers.IO) { lifecycleMutex.withLock { closeResources() } }
+            addLog("INFO", message)
             mutableStatus.value = VpnStatus(VpnPhase.DISCONNECTED, message)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()

@@ -25,6 +25,10 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.launch
 import androidx.compose.material3.*
@@ -49,6 +53,18 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun MainScreen(viewModel: MainViewModel = viewModel()) {
     val context = LocalContext.current
+
+    if (!viewModel.isLoggedIn) {
+        AuthScreen(
+            isLoading = viewModel.isAuthLoading,
+            errorMessage = viewModel.authError,
+            onLogin = { email, pass -> viewModel.loginUser(email, pass) },
+            onRegister = { email, pass -> viewModel.registerUser(email, pass) },
+            onActivate = { email, subId, pass -> viewModel.activateUser(email, subId, pass) }
+        )
+        return
+    }
+
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val homeScroll = rememberScrollState()
     val profileScroll = rememberScrollState()
@@ -75,6 +91,11 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
     var accountToDelete by rememberSaveable { mutableStateOf<String?>(null) }
     var showAddAccountDialog by remember { mutableStateOf(false) }
     var newAccountUsername by remember { mutableStateOf("") }
+    var showPaymentDialog by rememberSaveable { mutableStateOf(false) }
+    var selectedPaymentMonths by rememberSaveable { mutableIntStateOf(1) }
+    var showThemeDialog by rememberSaveable { mutableStateOf(false) }
+    var showRoutingDialog by rememberSaveable { mutableStateOf(false) }
+    var showLogsDialog by rememberSaveable { mutableStateOf(false) }
 
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -271,7 +292,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         modifier = Modifier.fillMaxWidth())
                     Surface(shape = RoundedCornerShape(24.dp), color = palette.surface.copy(alpha = 0.8f),
                         border = BorderStroke(1.dp, palette.outlineVariant), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text("Текущая подписка", color = palette.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelLarge)
                             Text(viewModel.username.ifBlank { "Подписка не добавлена" },
@@ -279,6 +300,33 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                             Text(if (viewModel.username.isBlank()) "Добавьте ключ, чтобы получить список серверов"
                                 else "Серверов в подписке: ${viewModel.nodes.size}",
                                 style = MaterialTheme.typography.bodyMedium, color = palette.onSurfaceVariant)
+
+                            if (viewModel.username.isNotBlank()) {
+                                HorizontalDivider(color = palette.outlineVariant.copy(alpha = 0.4f))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text("Статус подписки", style = MaterialTheme.typography.labelSmall, color = palette.onSurfaceVariant)
+                                        Text(
+                                            text = viewModel.subscriptionDaysRemaining?.let { "Осталось: $it дн." } ?: "Активна",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = palette.primary
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { showPaymentDialog = true },
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Icon(Icons.Default.ShoppingCart, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Продлить")
+                                    }
+                                }
+                            }
                         }
                     }
                         Row(
@@ -345,61 +393,111 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                             }
                             Text("Обновить текущую подписку")
                         }
+
+                        OutlinedButton(
+                            onClick = { viewModel.logout(context) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("Выйти из аккаунта")
+                        }
                 }
                 2 -> {
                     Text("Настройки", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
                         modifier = Modifier.fillMaxWidth())
-                    Surface(shape = RoundedCornerShape(24.dp), color = palette.surface.copy(alpha = 0.8f),
-                        border = BorderStroke(1.dp, palette.outlineVariant), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Тема оформления", style = MaterialTheme.typography.labelMedium)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            val themes = mapOf("Dark" to "Темная", "Light" to "Светлая", "System" to "Системная")
-                            themes.forEach { (key, label) ->
-                                val selected = viewModel.themeMode == key
-                                OutlinedButton(
-                                    onClick = { viewModel.updateThemeMode(key) },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                                    )
+
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = palette.surface.copy(alpha = 0.8f),
+                        border = BorderStroke(1.dp, palette.outlineVariant),
+                        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth()
+                    ) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+
+                            // Кнопка: Тема оформления
+                            Surface(
+                                onClick = { showThemeDialog = true },
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color.Transparent
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                                 ) {
-                                    Text(label, fontSize = 11.sp, maxLines = 1)
+                                    Surface(shape = RoundedCornerShape(12.dp), color = palette.primaryContainer) {
+                                        Icon(Icons.Default.Palette, null, Modifier.padding(10.dp).size(22.dp), tint = palette.onPrimaryContainer)
+                                    }
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text("Тема оформления", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                        val themeLabel = when (viewModel.themeMode) {
+                                            "Dark" -> "Тёмная"
+                                            "Light" -> "Светлая"
+                                            else -> "Системная"
+                                        }
+                                        Text(themeLabel, style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
+                                    }
+                                    Icon(Icons.Default.ChevronRight, null, tint = palette.onSurfaceVariant)
                                 }
                             }
-                        }
+
+                            HorizontalDivider(color = palette.outlineVariant.copy(alpha = 0.4f), modifier = Modifier.padding(horizontal = 14.dp))
+
+                            // Кнопка: Маршрутизация
+                            Surface(
+                                onClick = { showRoutingDialog = true },
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color.Transparent
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    Surface(shape = RoundedCornerShape(12.dp), color = palette.primaryContainer) {
+                                        Icon(Icons.Default.Shield, null, Modifier.padding(10.dp).size(22.dp), tint = palette.onPrimaryContainer)
+                                    }
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text("Маршрутизация", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                        val activeRules = mutableListOf<String>()
+                                        if (viewModel.bypassLan) activeRules.add("LAN")
+                                        if (viewModel.bypassRu) activeRules.add("RU сайты")
+                                        val summary = if (activeRules.isEmpty()) "Без исключений" else "Обход: ${activeRules.joinToString(", ")}"
+                                        Text(summary, style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
+                                    }
+                                    Icon(Icons.Default.ChevronRight, null, tint = palette.onSurfaceVariant)
+                                }
+                            }
+
+                            HorizontalDivider(color = palette.outlineVariant.copy(alpha = 0.4f), modifier = Modifier.padding(horizontal = 14.dp))
+
+                            // Кнопка: Логи трафика
+                            Surface(
+                                onClick = { showLogsDialog = true },
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color.Transparent
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    Surface(shape = RoundedCornerShape(12.dp), color = palette.secondaryContainer) {
+                                        Icon(Icons.Default.Info, null, Modifier.padding(10.dp).size(22.dp), tint = palette.onSecondaryContainer)
+                                    }
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text("Логи трафика", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                        val logsCount = viewModel.logs.size
+                                        val summary = if (logsCount == 0) "Записей нет" else "Записей: $logsCount"
+                                        Text(summary, style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
+                                    }
+                                    Icon(Icons.Default.ChevronRight, null, tint = palette.onSurfaceVariant)
+                                }
+                            }
+
                         }
                     }
-            Card(
-                modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = palette.surface.copy(alpha = 0.75f)),
-                border = BorderStroke(1.dp, palette.outlineVariant.copy(alpha = 0.7f))
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.Shield, null, Modifier.size(18.dp), tint = palette.primary)
-                        Text("Режим трафика", style = MaterialTheme.typography.labelLarge)
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        mapOf("Global (Proxy All)" to "Весь трафик", "Bypass LAN" to "Обход LAN").forEach { (key, label) ->
-                            val selected = viewModel.routingMode == key
-                            FilterChip(
-                                selected = selected,
-                                onClick = { viewModel.updateRoutingMode(key, context) },
-                                label = { Text(label, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(14.dp)
-                            )
-                        }
-                    }
-                }
-            }
 
                     Spacer(Modifier.height(24.dp))
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
@@ -497,6 +595,212 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
         }
     }
 
+    if (showThemeDialog) {
+        ModalBottomSheet(onDismissRequest = { showThemeDialog = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Тема оформления", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("Выберите внешний вид приложения", style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
+                Spacer(Modifier.height(4.dp))
+                val themes = mapOf("Dark" to "Темная", "Light" to "Светлая", "System" to "Системная")
+                themes.forEach { (key, label) ->
+                    val selected = viewModel.themeMode == key
+                    Surface(
+                        onClick = {
+                            viewModel.updateThemeMode(key)
+                            showThemeDialog = false
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (selected) palette.primaryContainer else palette.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(label, fontWeight = FontWeight.Medium)
+                            RadioButton(selected = selected, onClick = null)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showRoutingDialog) {
+        ModalBottomSheet(onDismissRequest = { showRoutingDialog = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(shape = RoundedCornerShape(12.dp), color = palette.primaryContainer) {
+                        Icon(Icons.Default.Shield, null, Modifier.padding(8.dp).size(20.dp), tint = palette.onPrimaryContainer)
+                    }
+                    Text("Исключения маршрутизации", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                }
+
+                // Исключить локальную сеть (LAN)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Исключить локальную сеть (LAN)", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                        Text("Локальный трафик и адреса роутеров идут напрямую мимо VPN", style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = viewModel.bypassLan,
+                        onCheckedChange = { viewModel.updateBypassLan(it, context) }
+                    )
+                }
+
+                HorizontalDivider(color = palette.outlineVariant.copy(alpha = 0.4f))
+
+                // Исключить российские сайты и IP-адреса
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Исключить российские сайты и IP-адреса", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                        Text("Сайты .ru, гос ресурсы и IP-адреса РФ идут напрямую мимо VPN", style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = viewModel.bypassRu,
+                        onCheckedChange = { viewModel.updateBypassRu(it, context) }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showLogsDialog) {
+        ModalBottomSheet(onDismissRequest = { showLogsDialog = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Surface(shape = RoundedCornerShape(12.dp), color = palette.secondaryContainer) {
+                            Icon(Icons.Default.Info, null, Modifier.padding(8.dp).size(20.dp), tint = palette.onSecondaryContainer)
+                        }
+                        Text("Логи трафика", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    }
+                    Row {
+                        if (viewModel.logs.isNotEmpty()) {
+                            IconButton(onClick = {
+                                val text = viewModel.logs.joinToString("\n") { "[${it.time}] [${it.tag}] ${it.message}" }
+                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("VPN Logs", text))
+                            }) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Скопировать логи", tint = palette.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                            }
+                            IconButton(onClick = { viewModel.clearLogs() }) {
+                                Icon(Icons.Default.DeleteSweep, contentDescription = "Очистить логи", tint = palette.error, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    }
+                }
+
+                if (viewModel.logs.isEmpty()) {
+                    Text(
+                        "Нет логов. Подключите VPN для отслеживания TCP/UDP соединений.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 16.dp)
+                    )
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = palette.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp)
+                    ) {
+                        val logsScroll = rememberScrollState()
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp)
+                                .verticalScroll(logsScroll),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            viewModel.logs.forEach { log ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    Text(
+                                        text = log.time,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        color = palette.onSurfaceVariant
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = when (log.tag) {
+                                            "TCP" -> palette.primaryContainer
+                                            "UDP" -> palette.secondaryContainer
+                                            "DIRECT" -> Color(0xFF10B981).copy(alpha = 0.2f)
+                                            "PROXY" -> Color(0xFF8B5CF6).copy(alpha = 0.2f)
+                                            "ERROR" -> palette.errorContainer
+                                            "WARN" -> Color(0xFFF59E0B).copy(alpha = 0.2f)
+                                            else -> palette.surfaceVariant
+                                        }
+                                    ) {
+                                        Text(
+                                            text = log.tag,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 10.sp,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                            color = when (log.tag) {
+                                                "TCP" -> palette.onPrimaryContainer
+                                                "UDP" -> palette.onSecondaryContainer
+                                                "DIRECT" -> Color(0xFF059669)
+                                                "PROXY" -> Color(0xFF7C3AED)
+                                                "ERROR" -> palette.onErrorContainer
+                                                "WARN" -> Color(0xFFD97706)
+                                                else -> palette.onSurfaceVariant
+                                            }
+                                        )
+                                    }
+                                    Text(
+                                        text = log.message,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        color = palette.onSurface,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     accountToDelete?.let { account ->
         AlertDialog(
             onDismissRequest = { accountToDelete = null },
@@ -561,5 +865,86 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                 }
             }
         )
+    }
+
+    if (showPaymentDialog) {
+        ModalBottomSheet(onDismissRequest = { showPaymentDialog = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    "Продление подписки",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Выберите тариф для ключа: ${viewModel.username}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = palette.onSurfaceVariant
+                )
+
+                val tariffs = listOf(
+                    Triple(1, "1 месяц", "150 ₽"),
+                    Triple(3, "3 месяца", "420 ₽ (скидка 30 ₽)"),
+                    Triple(6, "6 месяцев", "800 ₽ (выгодно, 133 ₽/мес)")
+                )
+
+                tariffs.forEach { (months, title, price) ->
+                    val isSelected = selectedPaymentMonths == months
+                    Surface(
+                        onClick = { selectedPaymentMonths = months },
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isSelected) palette.primaryContainer else palette.surfaceVariant,
+                        border = if (isSelected) BorderStroke(2.dp, palette.primary) else null,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text(title, fontWeight = FontWeight.Bold)
+                                Text(price, style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
+                            }
+                            RadioButton(selected = isSelected, onClick = null)
+                        }
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = palette.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = palette.primary)
+                        Text(
+                            "Оплата по СБП (Без VPN, в 1 клик через приложение банка)",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        viewModel.openPaymentUrl(context, selectedPaymentMonths)
+                        showPaymentDialog = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text("Перейти к оплате СБП", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
     }
 }

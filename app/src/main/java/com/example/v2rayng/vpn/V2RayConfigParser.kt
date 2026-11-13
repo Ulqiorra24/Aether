@@ -89,7 +89,7 @@ object V2RayConfigParser {
         )
     }
 
-    fun createConfig(node: ParsedNode, bypassLan: Boolean): String {
+    fun createConfig(node: ParsedNode, bypassLan: Boolean = true, bypassRu: Boolean = true): String {
         val reality = JSONObject()
             .put("serverName", node.serverName)
             .put("fingerprint", node.fingerprint)
@@ -137,12 +137,63 @@ object V2RayConfigParser {
             .put("streamSettings", stream)
         val rules = JSONArray()
         if (bypassLan) {
-            rules.put(JSONObject().put("type", "field").put("outboundTag", "direct")
-                .put("ip", JSONArray(listOf("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
-                    "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10"))))
+            rules.put(
+                JSONObject()
+                    .put("type", "field")
+                    .put("outboundTag", "direct")
+                    .put("ip", JSONArray(listOf(
+                        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+                        "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10"
+                    )))
+                    .put("domain", JSONArray(listOf(
+                        "regexp:^.*\\.local$", "regexp:^.*\\.lan$", "domain:local"
+                    )))
+            )
+        }
+        if (bypassRu) {
+            rules.put(
+                JSONObject()
+                    .put("type", "field")
+                    .put("outboundTag", "direct")
+                    .put("domain", JSONArray(listOf(
+                        "domain:ru",
+                        "domain:xn--p1ai",
+                        "domain:su",
+                        "domain:by",
+                        "domain:vk.com",
+                        "domain:vk.me",
+                        "domain:vk.ru",
+                        "domain:yandex.ru",
+                        "domain:yandex.com",
+                        "domain:yandex.net",
+                        "domain:ya.ru",
+                        "domain:dzen.ru",
+                        "domain:mail.ru",
+                        "domain:ok.ru",
+                        "domain:rambler.ru",
+                        "domain:ozon.ru",
+                        "domain:wildberries.ru",
+                        "domain:avito.ru",
+                        "domain:sberbank.ru",
+                        "domain:sber.ru",
+                        "domain:tbank.ru",
+                        "domain:tinkoff.ru",
+                        "domain:vtb.ru",
+                        "domain:alfabank.ru",
+                        "domain:gosuslugi.ru",
+                        "domain:mos.ru",
+                        "domain:nalog.ru",
+                        "domain:kremlin.ru",
+                        "domain:gov.ru",
+                        "domain:rutube.ru",
+                        "domain:kinopoisk.ru",
+                        "domain:hh.ru",
+                        "domain:2gis.ru"
+                    )))
+            )
         }
         return JSONObject()
-            .put("log", JSONObject().put("loglevel", "warning"))
+            .put("log", JSONObject().put("loglevel", "info"))
             .put("inbounds", JSONArray()
                 .put(JSONObject().put("tag", "tun-in").put("protocol", "tun")
                     .put("settings", JSONObject().put("name", "aether-tun").put("MTU", 1500)))

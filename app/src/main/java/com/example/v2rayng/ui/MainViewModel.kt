@@ -36,8 +36,21 @@ data class VpnNode(
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = VpnPrefs(application)
     private val repository = SubscriptionRepository()
+    private val authRepository = com.example.v2rayng.data.AuthRepository()
 
     val fixedHost = prefs.fixedHost
+
+    var isLoggedIn by mutableStateOf(prefs.isLoggedIn)
+        private set
+
+    var userEmail by mutableStateOf(prefs.userEmail.ifBlank { prefs.currentUsername })
+        private set
+
+    var authError by mutableStateOf<String?>(null)
+        private set
+
+    var isAuthLoading by mutableStateOf(false)
+        private set
 
     var accounts by mutableStateOf(prefs.accounts)
         private set
@@ -65,7 +78,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var selectedNodeIndex by mutableIntStateOf(0)
         private set
 
-    var routingMode by mutableStateOf("Global (Proxy All)")
+    var bypassLan by mutableStateOf(prefs.bypassLan)
+        private set
+
+    var bypassRu by mutableStateOf(prefs.bypassRu)
+        private set
+
+    var logs by mutableStateOf<List<com.example.v2rayng.vpn.VpnLogEntry>>(emptyList())
         private set
 
     var vpnStatus by mutableStateOf(V2RayVpnService.status.value)
@@ -90,6 +109,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             V2RayVpnService.status.collect {
                 vpnStatus = it
                 statusMessage = it.message
+            }
+        }
+        viewModelScope.launch {
+            V2RayVpnService.logs.collect {
+                logs = it
             }
         }
         if (subscriptionContent.isNotBlank()) {
@@ -117,6 +141,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissUpdate() {
         availableUpdate = null
+    }
+
+    fun openPaymentUrl(context: android.content.Context, months: Int) {
+        val user = username.ifBlank { accounts.firstOrNull() ?: "" }
+        if (user.isBlank()) {
+            statusMessage = "Сначала добавьте подписку"
+            return
+        }
+        val encodedUser = java.net.URLEncoder.encode(user, "UTF-8")
+        val baseUrl = fixedHost.substringBefore(":2096")
+        val paymentUrl = "$baseUrl/pay?user=$encodedUser&months=$months&type=sbp"
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(paymentUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            statusMessage = "Не удалось открыть браузер для оплаты"
+        }
     }
 
     var updateDownloadedBytes by mutableStateOf(0L)
@@ -261,12 +304,103 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.themeMode = mode
     }
 
-    fun updateRoutingMode(mode: String, context: android.content.Context? = null) {
-        if (routingMode == mode) return
-        routingMode = mode
+    fun updateBypassLan(enabled: Boolean, context: android.content.Context? = null) {
+        if (bypassLan == enabled) return
+        bypassLan = enabled
+        prefs.bypassLan = enabled
         if ((isConnected || isConnecting || isStopping) && context != null) {
             reconnectVpn(context)
         }
+    }
+
+    fun updateBypassRu(enabled: Boolean, context: android.content.Context? = null) {
+        if (bypassRu == enabled) return
+        bypassRu = enabled
+        prefs.bypassRu = enabled
+        if ((isConnected || isConnecting || isStopping) && context != null) {
+            reconnectVpn(context)
+        }
+    }
+
+    fun clearLogs() {
+        V2RayVpnService.clearLogs()
+    }
+
+    fun loginUser(email: String, pass: String) {
+        isAuthLoading = true
+        authError = null
+        viewModelScope.launch {
+            val result = authRepository.login(fixedHost, email, pass)
+            isAuthLoading = false
+            result.onSuccess { authResult ->
+                handleAuthSuccess(email, authResult)
+            }.onFailure { error ->
+                authError = error.localizedMessage ?: "Ошибка входа"
+            }
+        }
+    }
+
+    fun registerUser(email: String, pass: String) {
+        isAuthLoading = true
+        authError = null
+        viewModelScope.launch {
+            val result = authRepository.register(fixedHost, email, pass)
+            isAuthLoading = false
+            result.onSuccess { authResult ->
+                handleAuthSuccess(email, authResult)
+            }.onFailure { error ->
+                authError = error.localizedMessage ?: "Ошибка регистрации"
+            }
+        }
+    }
+
+    fun activateUser(email: String, subId: String, pass: String) {
+        isAuthLoading = true
+        authError = null
+        viewModelScope.launch {
+            val result = authRepository.activate(fixedHost, email, subId, pass)
+            isAuthLoading = false
+            result.onSuccess { authResult ->
+                handleAuthSuccess(email, authResult)
+            }.onFailure { error ->
+                authError = error.localizedMessage ?: "Ошибка активации"
+            }
+        }
+    }
+
+    private fun handleAuthSuccess(email: String, authResult: com.example.v2rayng.data.AuthResult) {
+        prefs.authToken = authResult.token
+        prefs.userEmail = email
+        userEmail = email
+        isLoggedIn = true
+        authError = null
+        addAccount(email)
+        selectAccount(email)
+        if (!authResult.subscriptionContent.isNullOrBlank()) {
+            subscriptionContent = authResult.subscriptionContent
+            prefs.saveSubscription(email, authResult.subscriptionContent)
+            parseNodes(authResult.subscriptionContent)
+        } else {
+            fetchSubscriptionFor(email)
+        }
+    }
+
+    fun logout(context: android.content.Context? = null) {
+        if (isConnected || isConnecting || isStopping) {
+            val appContext = context ?: getApplication<Application>()
+            appContext.startService(Intent(appContext, V2RayVpnService::class.java).apply {
+                action = V2RayVpnService.ACTION_STOP
+            })
+        }
+        prefs.clearAuth()
+        prefs.currentUsername = ""
+        isLoggedIn = false
+        userEmail = ""
+        username = ""
+        subscriptionContent = ""
+        nodes = emptyList()
+        selectedNodeIndex = 0
+        statusMessage = "Выполните вход для подключения"
     }
 
     fun selectNode(index: Int, context: android.content.Context? = null) {
@@ -440,7 +574,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val intent = Intent(context, V2RayVpnService::class.java).apply {
             putExtra("NODE_URI", selectedUri)
-            putExtra("ROUTING_MODE", routingMode)
+            putExtra("BYPASS_LAN", bypassLan)
+            putExtra("BYPASS_RU", bypassRu)
         }
         try {
             ContextCompat.startForegroundService(context, intent)

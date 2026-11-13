@@ -7,7 +7,7 @@ class VpnPrefs(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("v2rayng_prefs", Context.MODE_PRIVATE)
 
-    val fixedHost: String = "https://mikaela-go.ru:2096"
+    val fixedHost: String = SecretObfuscator.getFixedHost()
 
     var accounts: List<String>
         get() {
@@ -49,4 +49,27 @@ class VpnPrefs(context: Context) {
     var themeMode: String // "Dark", "Light", "System"
         get() = prefs.getString("theme_mode", "Dark") ?: "Dark"
         set(value) = prefs.edit().putString("theme_mode", value).apply()
+
+    var bypassLan: Boolean
+        get() = prefs.getBoolean("bypass_lan", true)
+        set(value) = prefs.edit().putBoolean("bypass_lan", value).apply()
+
+    var bypassRu: Boolean
+        get() = prefs.getBoolean("bypass_ru", true)
+        set(value) = prefs.edit().putBoolean("bypass_ru", value).apply()
+
+    var authToken: String
+        get() = prefs.getString("auth_token", "") ?: ""
+        set(value) = prefs.edit().putString("auth_token", value).apply()
+
+    var userEmail: String
+        get() = prefs.getString("user_email", "") ?: ""
+        set(value) = prefs.edit().putString("user_email", value).apply()
+
+    val isLoggedIn: Boolean
+        get() = authToken.isNotBlank() || currentUsername.isNotBlank()
+
+    fun clearAuth() {
+        prefs.edit().remove("auth_token").remove("user_email").apply()
+    }
 }
