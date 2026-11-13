@@ -54,6 +54,10 @@ class V2RayConfigParserTest {
         assertTrue(rule.getJSONArray("domain").toString().contains("domain:gosuslugi.ru"))
     }
 
+    @Test fun secretObfuscatorDecryptsCorrectHost() {
+        assertEquals("https://mikaela-go.ru:2096", com.example.v2rayng.data.SecretObfuscator.getFixedHost())
+    }
+
     @Test fun grpcServiceNameReachesCore() {
         val node = V2RayConfigParser.parse(link.replace("type=tcp", "type=grpc")
             .replace("flow=xtls-rprx-vision", "serviceName=my%2Fservice"))
