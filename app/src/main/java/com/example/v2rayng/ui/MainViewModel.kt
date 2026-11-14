@@ -179,8 +179,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     try {
                         val conn = (java.net.URL(requestUrl).openConnection() as java.net.HttpURLConnection).apply {
                             requestMethod = "GET"
-                            connectTimeout = 15000
-                            readTimeout = 15000
+                            connectTimeout = 30000
+                            readTimeout = 30000
                         }
                         if (conn.responseCode == 200) {
                             val response = conn.inputStream.bufferedReader().readText()
@@ -196,11 +196,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 if (!paymentUrl.isNullOrBlank()) {
-                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(paymentUrl)).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    withContext(Dispatchers.Main) {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(paymentUrl)).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(intent)
+                            onSuccess()
+                        } catch (e: Exception) {
+                            paymentError = "Не удалось открыть браузер: ${e.localizedMessage}"
+                        }
                     }
-                    context.startActivity(intent)
-                    onSuccess()
                 } else {
                     paymentError = errMsg ?: "Не удалось получить ссылку на оплату"
                 }
