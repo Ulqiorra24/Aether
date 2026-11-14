@@ -55,6 +55,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var isAuthLoading by mutableStateOf(false)
         private set
 
+    var isPaymentLoading by mutableStateOf(false)
+        private set
+
+    var paymentError by mutableStateOf<String?>(null)
+
     var accounts by mutableStateOf(prefs.accounts)
         private set
 
@@ -146,36 +151,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         availableUpdate = null
     }
 
-    fun openPaymentUrl(context: android.content.Context, months: Int, promo: String = "") {
+    fun resetPaymentError() {
+        paymentError = null
+    }
+
+    fun openPaymentUrl(
+        context: android.content.Context,
+        months: Int,
+        promo: String = "",
+        onSuccess: () -> Unit = {}
+    ) {
         val user = userEmail.ifBlank { username.ifBlank { accounts.firstOrNull() ?: "" } }
         if (user.isBlank()) {
-            statusMessage = "Сначала выполните вход"
+            paymentError = "Сначала выполните вход"
             return
         }
+        if (isPaymentLoading) return
+        isPaymentLoading = true
+        paymentError = null
+
         viewModelScope.launch {
             try {
                 val encodedUser = java.net.URLEncoder.encode(user, "UTF-8")
                 val promoQuery = if (promo.isNotBlank()) "&promo=${java.net.URLEncoder.encode(promo.trim(), "UTF-8")}" else ""
                 val requestUrl = "$fixedHost/api/pay/create?email=$encodedUser&months=$months$promoQuery"
-                val paymentUrl = withContext(Dispatchers.IO) {
+                val (paymentUrl, errMsg) = withContext(Dispatchers.IO) {
                     try {
                         val conn = (java.net.URL(requestUrl).openConnection() as java.net.HttpURLConnection).apply {
                             requestMethod = "GET"
-                            connectTimeout = 8000
-                            readTimeout = 8000
+                            connectTimeout = 15000
+                            readTimeout = 15000
                         }
                         if (conn.responseCode == 200) {
                             val response = conn.inputStream.bufferedReader().readText()
-                            org.json.JSONObject(response).optString("payment_url")
+                            Pair(org.json.JSONObject(response).optString("payment_url"), null)
                         } else {
                             val errResponse = try { conn.errorStream?.bufferedReader()?.readText() } catch (_: Exception) { null }
                             val msg = try { org.json.JSONObject(errResponse ?: "").optString("message") } catch (_: Exception) { "" }
-                            withContext(Dispatchers.Main) {
-                                statusMessage = if (msg.isNotBlank()) msg else "Ошибка создания счета"
-                            }
-                            null
+                            Pair(null, if (msg.isNotBlank()) msg else "Ошибка создания счета (${conn.responseCode})")
                         }
-                    } catch (_: Exception) { null }
+                    } catch (e: Exception) {
+                        Pair(null, e.localizedMessage ?: "Ошибка подключения к серверу")
+                    }
                 }
 
                 if (!paymentUrl.isNullOrBlank()) {
@@ -183,9 +200,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     }
                     context.startActivity(intent)
+                    onSuccess()
+                } else {
+                    paymentError = errMsg ?: "Не удалось получить ссылку на оплату"
                 }
-            } catch (_: Exception) {
-                statusMessage = "Не удалось открыть браузер для оплаты"
+            } catch (e: Exception) {
+                paymentError = e.localizedMessage ?: "Не удалось открыть браузер для оплаты"
+            } finally {
+                isPaymentLoading = false
             }
         }
     }

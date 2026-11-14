@@ -1005,7 +1005,12 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
         }
 
         ModalBottomSheet(
-            onDismissRequest = { showPaymentDialog = false },
+            onDismissRequest = {
+                if (!viewModel.isPaymentLoading) {
+                    showPaymentDialog = false
+                    viewModel.resetPaymentError()
+                }
+            },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
             Column(
@@ -1113,7 +1118,10 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
 
                 OutlinedTextField(
                     value = promoCodeInput,
-                    onValueChange = { promoCodeInput = it.trim() },
+                    onValueChange = {
+                        promoCodeInput = it.trim()
+                        viewModel.resetPaymentError()
+                    },
                     label = { Text("Промокод (если есть)") },
                     placeholder = { Text("Введите промокод на скидку") },
                     singleLine = true,
@@ -1124,15 +1132,35 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                viewModel.paymentError?.let { err ->
+                    Text(
+                        text = err,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
                 Button(
                     onClick = {
-                        viewModel.openPaymentUrl(context, selectedPaymentMonths, promoCodeInput)
-                        showPaymentDialog = false
+                        viewModel.openPaymentUrl(context, selectedPaymentMonths, promoCodeInput) {
+                            showPaymentDialog = false
+                        }
                     },
+                    enabled = !viewModel.isPaymentLoading,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp)
                 ) {
-                    Text("Перейти к оплате СБП", fontWeight = FontWeight.Bold)
+                    if (viewModel.isPaymentLoading) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Создание счета…", fontWeight = FontWeight.Bold)
+                    } else {
+                        Text("Перейти к оплате СБП", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
