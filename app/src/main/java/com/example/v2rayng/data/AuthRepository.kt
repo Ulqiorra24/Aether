@@ -30,13 +30,26 @@ class AuthRepository {
             )
         }
 
-    suspend fun register(baseUrl: String, email: String, password: String): Result<AuthResult> =
+    suspend fun register(baseUrl: String, email: String, password: String, paymentEmail: String = ""): Result<AuthResult> =
         withContext(Dispatchers.IO) {
             postJson(
                 urlStr = "$baseUrl/api/auth/register",
                 jsonPayload = JSONObject().apply {
                     put("email", email.trim())
                     put("password", password)
+                    if (paymentEmail.isNotBlank()) put("payment_email", paymentEmail.trim())
+                }
+            )
+        }
+
+    suspend fun updateProfile(baseUrl: String, email: String, paymentEmail: String, newPassword: String? = null): Result<AuthResult> =
+        withContext(Dispatchers.IO) {
+            postJson(
+                urlStr = "$baseUrl/api/auth/update",
+                jsonPayload = JSONObject().apply {
+                    put("email", email.trim())
+                    put("payment_email", paymentEmail.trim())
+                    if (!newPassword.isNullOrBlank()) put("new_password", newPassword)
                 }
             )
         }

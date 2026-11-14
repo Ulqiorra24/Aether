@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.launch
 import androidx.compose.material3.*
@@ -59,7 +60,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
             isLoading = viewModel.isAuthLoading,
             errorMessage = viewModel.authError,
             onLogin = { email, pass -> viewModel.loginUser(email, pass) },
-            onRegister = { email, pass -> viewModel.registerUser(email, pass) },
+            onRegister = { email, pass, payEmail -> viewModel.registerUser(email, pass, payEmail) },
             onActivate = { email, subId, pass -> viewModel.activateUser(email, subId, pass) }
         )
         return
@@ -96,6 +97,9 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
     var showThemeDialog by rememberSaveable { mutableStateOf(false) }
     var showRoutingDialog by rememberSaveable { mutableStateOf(false) }
     var showLogsDialog by rememberSaveable { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
+    var editPaymentEmail by remember { mutableStateOf("") }
+    var editNewPassword by remember { mutableStateOf("") }
 
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -293,13 +297,37 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     Surface(shape = RoundedCornerShape(24.dp), color = palette.surface.copy(alpha = 0.8f),
                         border = BorderStroke(1.dp, palette.outlineVariant), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Текущая подписка", color = palette.onSurfaceVariant,
+                            Text("Текущий аккаунт", color = palette.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelLarge)
-                            Text(viewModel.username.ifBlank { "Подписка не добавлена" },
+                            Text(viewModel.userEmail.ifBlank { viewModel.username.ifBlank { "Подписка не добавлена" } },
                                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text(if (viewModel.username.isBlank()) "Добавьте ключ, чтобы получить список серверов"
-                                else "Серверов в подписке: ${viewModel.nodes.size}",
-                                style = MaterialTheme.typography.bodyMedium, color = palette.onSurfaceVariant)
+
+                            val displayPaymentEmail = viewModel.paymentEmail.ifBlank { viewModel.userEmail.ifBlank { viewModel.username } }
+                            if (displayPaymentEmail.isNotBlank()) {
+                                HorizontalDivider(color = palette.outlineVariant.copy(alpha = 0.4f))
+                                Surface(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Payment Email", displayPaymentEmail))
+                                        android.widget.Toast.makeText(context, "Email для оплаты скопирован", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = palette.surfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text("Email для оплаты (нажмите для копирования):", style = MaterialTheme.typography.labelSmall, color = palette.onSurfaceVariant)
+                                            Text(displayPaymentEmail, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = palette.primary)
+                                        }
+                                        Icon(Icons.Default.ContentCopy, contentDescription = "Скопировать Email", tint = palette.primary, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            }
 
                             if (viewModel.username.isNotBlank()) {
                                 HorizontalDivider(color = palette.outlineVariant.copy(alpha = 0.4f))
@@ -365,16 +393,33 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                                             color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.weight(1f)
                                         )
-                                        IconButton(
-                                            onClick = { accountToDelete = acc },
-                                            modifier = Modifier.size(48.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Delete,
-                                                contentDescription = "Удалить подписку",
-                                                tint = MaterialTheme.colorScheme.error,
-                                                modifier = Modifier.size(20.dp)
-                                            )
+                                        Row {
+                                            IconButton(
+                                                onClick = {
+                                                    editPaymentEmail = viewModel.paymentEmail.ifBlank { viewModel.userEmail }
+                                                    editNewPassword = ""
+                                                    showEditProfileDialog = true
+                                                },
+                                                modifier = Modifier.size(40.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Edit,
+                                                    contentDescription = "Редактировать профиль",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { accountToDelete = acc },
+                                                modifier = Modifier.size(40.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Delete,
+                                                    contentDescription = "Удалить подписку",
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -593,6 +638,47 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                 }
             }
         }
+    }
+
+    if (showEditProfileDialog) {
+        AlertDialog(
+            onDismissRequest = { showEditProfileDialog = false },
+            title = { Text("Редактирование профиля") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = editPaymentEmail,
+                        onValueChange = { editPaymentEmail = it },
+                        label = { Text("Email для оплаты") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editNewPassword,
+                        onValueChange = { editNewPassword = it },
+                        label = { Text("Новый пароль (если хотите изменить)") },
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.updateProfile(editPaymentEmail, editNewPassword.ifBlank { null }) { _, msg ->
+                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    showEditProfileDialog = false
+                }) {
+                    Text("Сохранить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditProfileDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 
     if (showThemeDialog) {

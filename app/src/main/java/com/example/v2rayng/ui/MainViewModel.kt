@@ -46,6 +46,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var userEmail by mutableStateOf(prefs.userEmail.ifBlank { prefs.currentUsername })
         private set
 
+    var paymentEmail by mutableStateOf(prefs.paymentEmail)
+        private set
+
     var authError by mutableStateOf<String?>(null)
         private set
 
@@ -355,16 +358,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun registerUser(email: String, pass: String) {
+    fun updatePaymentEmail(email: String) {
+        paymentEmail = email
+        prefs.paymentEmail = email
+    }
+
+    fun registerUser(email: String, pass: String, payEmail: String = "") {
         isAuthLoading = true
         authError = null
+        if (payEmail.isNotBlank()) {
+            updatePaymentEmail(payEmail)
+        }
         viewModelScope.launch {
-            val result = authRepository.register(fixedHost, email, pass)
+            val result = authRepository.register(fixedHost, email, pass, payEmail)
             isAuthLoading = false
             result.onSuccess { authResult ->
                 handleAuthSuccess(email, authResult)
             }.onFailure { error ->
                 authError = error.localizedMessage ?: "Ошибка регистрации"
+            }
+        }
+    }
+
+    fun updateProfile(newPayEmail: String, newPass: String? = null, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = authRepository.updateProfile(fixedHost, userEmail, newPayEmail, newPass)
+            result.onSuccess {
+                updatePaymentEmail(newPayEmail)
+                onResult(true, "Профиль успешно обновлен")
+            }.onFailure {
+                updatePaymentEmail(newPayEmail)
+                onResult(true, "Данные сохранены локально")
             }
         }
     }

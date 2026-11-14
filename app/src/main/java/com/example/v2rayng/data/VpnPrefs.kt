@@ -66,6 +66,10 @@ class VpnPrefs(context: Context) {
         get() = prefs.getString("user_email", "") ?: ""
         set(value) = prefs.edit().putString("user_email", value).apply()
 
+    var paymentEmail: String
+        get() = prefs.getString("payment_email", "") ?: ""
+        set(value) = prefs.edit().putString("payment_email", value).apply()
+
     val isLoggedIn: Boolean
         get() = authToken.isNotBlank() || currentUsername.isNotBlank()
 

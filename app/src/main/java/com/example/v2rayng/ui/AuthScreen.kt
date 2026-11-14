@@ -37,12 +37,13 @@ fun AuthScreen(
     isLoading: Boolean,
     errorMessage: String?,
     onLogin: (email: String, pass: String) -> Unit,
-    onRegister: (email: String, pass: String) -> Unit,
+    onRegister: (email: String, pass: String, paymentEmail: String) -> Unit,
     onActivate: (email: String, subId: String, pass: String) -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Login, 1: Register, 2: Activate
 
     var email by remember { mutableStateOf("") }
+    var paymentEmail by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var subId by remember { mutableStateOf("") }
@@ -229,8 +230,25 @@ fun AuthScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    // Поле Подтверждения пароля для Регистрации
+                    // Поля для Регистрации
                     if (selectedTab == 1) {
+                        OutlinedTextField(
+                            value = paymentEmail,
+                            onValueChange = {
+                                paymentEmail = it
+                                localError = null
+                            },
+                            label = { Text("Email для оплаты (необязательно)") },
+                            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Email,
+                                imeAction = ImeAction.Next
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
                         OutlinedTextField(
                             value = confirmPassword,
                             onValueChange = {
@@ -272,7 +290,7 @@ fun AuthScreen(
                                         localError = "Пароли не совпадают"
                                         return@Button
                                     }
-                                    onRegister(email, password)
+                                    onRegister(email, password, paymentEmail)
                                 }
                                 2 -> {
                                     if (email.isBlank() || subId.isBlank() || password.isBlank()) {
