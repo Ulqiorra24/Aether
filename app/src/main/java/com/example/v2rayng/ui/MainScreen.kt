@@ -300,10 +300,10 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text("Текущий аккаунт", color = palette.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelLarge)
-                            Text(viewModel.userEmail.ifBlank { viewModel.username.ifBlank { "Подписка не добавлена" } },
+                            Text(viewModel.username.ifBlank { viewModel.userEmail.ifBlank { "Подписка не добавлена" } },
                                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 
-                            val displayPaymentEmail = viewModel.paymentEmail.ifBlank { viewModel.userEmail.ifBlank { viewModel.username } }
+                            val displayPaymentEmail = viewModel.paymentEmail.ifBlank { viewModel.username.ifBlank { viewModel.userEmail } }
                             if (displayPaymentEmail.isNotBlank()) {
                                 HorizontalDivider(color = palette.outlineVariant.copy(alpha = 0.4f))
                                 Surface(
@@ -397,7 +397,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                                         Row {
                                             IconButton(
                                                 onClick = {
-                                                    editPaymentEmail = viewModel.paymentEmail.ifBlank { viewModel.userEmail }
+                                                    editPaymentEmail = viewModel.paymentEmail.ifBlank { viewModel.username.ifBlank { viewModel.userEmail } }
                                                     editNewPassword = ""
                                                     showEditProfileDialog = true
                                                 },
@@ -1023,7 +1023,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     .padding(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                val activeLogin = viewModel.userEmail.ifBlank { viewModel.username }
+                val activeLogin = viewModel.username.ifBlank { viewModel.userEmail }
                 val activePaymentEmail = viewModel.paymentEmail.ifBlank { activeLogin }
 
                 Text(

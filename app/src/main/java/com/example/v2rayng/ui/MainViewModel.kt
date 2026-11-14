@@ -161,7 +161,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         promo: String = "",
         onSuccess: () -> Unit = {}
     ) {
-        val user = userEmail.ifBlank { username.ifBlank { accounts.firstOrNull() ?: "" } }
+        val user = username.ifBlank { userEmail.ifBlank { accounts.firstOrNull() ?: "" } }
         if (user.isBlank()) {
             paymentError = "Сначала выполните вход"
             return
@@ -420,7 +420,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateProfile(newPayEmail: String, newPass: String? = null, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
-            val result = authRepository.updateProfile(fixedHost, userEmail, newPayEmail, newPass)
+            val targetUser = username.ifBlank { userEmail }
+            val result = authRepository.updateProfile(fixedHost, targetUser, newPayEmail, newPass)
             result.onSuccess {
                 updatePaymentEmail(newPayEmail)
                 onResult(true, "Профиль успешно обновлен")
