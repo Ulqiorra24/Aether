@@ -55,7 +55,7 @@ class V2RayConfigParserTest {
     }
 
     @Test fun secretObfuscatorDecryptsCorrectHost() {
-        assertEquals("https://mikaela-go.ru:2096", com.example.v2rayng.data.SecretObfuscator.getFixedHost())
+        assertEquals("https://mikaela-go.ru", com.example.v2rayng.data.SecretObfuscator.getFixedHost())
     }
 
     @Test fun grpcServiceNameReachesCore() {
