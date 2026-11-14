@@ -962,16 +962,51 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     .padding(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                val activeLogin = viewModel.userEmail.ifBlank { viewModel.username }
+                val activePaymentEmail = viewModel.paymentEmail.ifBlank { activeLogin }
+
                 Text(
                     "Продление подписки",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
+
                 Text(
-                    "Выберите тариф для ключа: ${viewModel.username}",
+                    "Выберите тариф для оплаты для $activeLogin",
                     style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                Text(
+                    "Ниже обязательно укажите email для оплаты и при оплате укажите его для моментального продления тарифа.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = palette.onSurfaceVariant
                 )
+
+                if (activePaymentEmail.isNotBlank()) {
+                    Surface(
+                        onClick = {
+                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Payment Email", activePaymentEmail))
+                            android.widget.Toast.makeText(context, "Email для оплаты скопирован", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        color = palette.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Email для оплаты (нажмите для копирования):", style = MaterialTheme.typography.labelSmall, color = palette.onSurfaceVariant)
+                                Text(activePaymentEmail, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = palette.primary)
+                            }
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Скопировать", tint = palette.primary, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
 
                 val tariffs = listOf(
                     Triple(1, "1 месяц", "150 ₽"),
