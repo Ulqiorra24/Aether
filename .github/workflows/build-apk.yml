@@ -18,29 +18,18 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Select next release version
+    - name: Select release version from gradle.properties
       id: version
-      env:
-        GH_TOKEN: ${{ github.token }}
-        GH_REPO: ${{ github.repository }}
       shell: bash
       run: |
         set -euo pipefail
-        version="0.1"
-        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-          latest=$(gh api "repos/$GH_REPO/releases" --jq '[.[] | select(.draft == false and .prerelease == false)][0].tag_name // ""')
-          if [[ -z "$latest" ]]; then
-            version="0.1"
-          elif [[ "$latest" =~ ^v0\.([0-9]+)$ ]]; then
-            minor=${BASH_REMATCH[1]}
-            version="0.$((10#$minor + 1))"
-          else
-            printf 'Unsupported latest release version: %s\n' "$latest" >&2
-            exit 1
-          fi
+        version_name=$(grep '^aetherVersionName=' gradle.properties | cut -d= -f2 | tr -d ' \r\n')
+        version_code=$(grep '^aetherVersionCode=' gradle.properties | cut -d= -f2 | tr -d ' \r\n')
+        if [[ -z "$version_name" || -z "$version_code" ]]; then
+          echo "Error: version name or code missing in gradle.properties" >&2
+          exit 1
         fi
-        minor=${version#0.}
-        printf 'name=%s\ncode=%s\n' "$version" "$((minor + 3))" >> "$GITHUB_OUTPUT"
+        printf 'name=%s\ncode=%s\n' "$version_name" "$version_code" >> "$GITHUB_OUTPUT"
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
@@ -85,17 +74,26 @@ jobs:
         GH_REPO: ${{ github.repository }}
         RELEASE_VERSION: ${{ steps.version.outputs.name }}
       run: |
-        gh release create "v$RELEASE_VERSION" app/build/outputs/apk/release/aether.apk \
-          --target "${{ github.sha }}" \
-          --title "Aether v$RELEASE_VERSION" \
-          --notes "### Что нового в v$RELEASE_VERSION:
+        if gh release view "v$RELEASE_VERSION" >/dev/null 2>&1; then
+          gh release upload "v$RELEASE_VERSION" app/build/outputs/apk/release/aether.apk --clobber
+        else
+          gh release create "v$RELEASE_VERSION" app/build/outputs/apk/release/aether.apk \
+            --target "${{ github.sha }}" \
+            --title "Aether v$RELEASE_VERSION" \
+            --notes "### Что нового в v$RELEASE_VERSION:
 
-        ✉️ **Email для оплаты и Редактирование профиля**:
-        - Ввод Email для оплаты при регистрации аккаунта.
-        - Отображение Email для оплаты в Профиле с возможностью быстрый копирования в 1 клик.
-        - Редактирование профиля (иконка Карандаша) для изменения пароля и Email для оплаты.
+🎁 **Промокоды и Повторная оплата**:
+- Ввод промокода в диалоге продления подписки (скидки Lava.top).
+- Устранена ошибка «Данный продукт уже приобретен» при повторном продлении через Lava.top.
+- Валидация промокода бэкендом с понятным отображением ошибки.
 
-        💳 **Интеграция с Lava.top**:
-        - Оплата продления подписки картами РФ, СБП, СберПэй, Т-Пэй.
-        - Автоматическое продление срока действия в 3X-UI через Webhook." \
-          --latest
+✉️ **Email для оплаты и Редактирование профиля**:
+- Ввод Email для оплаты при регистрации аккаунта.
+- Отображение Email для оплаты в Профиле с возможностью быстрого копирования в 1 клик.
+- Редактирование профиля (иконка Карандаша) для изменения пароля и Email для оплаты.
+
+💳 **Интеграция с Lava.top**:
+- Оплата продления подписки картами РФ, СБП, СберПэй, Т-Пэй.
+- Автоматическое продление срока действия в 3X-UI через Webhook." \
+            --latest
+        fi
