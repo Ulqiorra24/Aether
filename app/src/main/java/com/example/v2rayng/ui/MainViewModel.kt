@@ -146,7 +146,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         availableUpdate = null
     }
 
-    fun openPaymentUrl(context: android.content.Context, months: Int) {
+    fun openPaymentUrl(context: android.content.Context, months: Int, promo: String = "") {
         val user = userEmail.ifBlank { username.ifBlank { accounts.firstOrNull() ?: "" } }
         if (user.isBlank()) {
             statusMessage = "Сначала выполните вход"
@@ -155,7 +155,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val encodedUser = java.net.URLEncoder.encode(user, "UTF-8")
-                val requestUrl = "$fixedHost/api/pay/create?email=$encodedUser&months=$months"
+                val promoQuery = if (promo.isNotBlank()) "&promo=${java.net.URLEncoder.encode(promo.trim(), "UTF-8")}" else ""
+                val requestUrl = "$fixedHost/api/pay/create?email=$encodedUser&months=$months$promoQuery"
                 val paymentUrl = withContext(Dispatchers.IO) {
                     try {
                         val conn = (java.net.URL(requestUrl).openConnection() as java.net.HttpURLConnection).apply {
@@ -166,14 +167,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         if (conn.responseCode == 200) {
                             val response = conn.inputStream.bufferedReader().readText()
                             org.json.JSONObject(response).optString("payment_url")
-                        } else null
+                        } else {
+                            val errResponse = try { conn.errorStream?.bufferedReader()?.readText() } catch (_: Exception) { null }
+                            val msg = try { org.json.JSONObject(errResponse ?: "").optString("message") } catch (_: Exception) { "" }
+                            withContext(Dispatchers.Main) {
+                                statusMessage = if (msg.isNotBlank()) msg else "Ошибка создания счета"
+                            }
+                            null
+                        }
                     } catch (_: Exception) { null }
-                } ?: "$fixedHost/api/pay/create?email=$encodedUser&months=$months"
-
-                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(paymentUrl)).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 }
-                context.startActivity(intent)
+
+                if (!paymentUrl.isNullOrBlank()) {
+                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(paymentUrl)).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(intent)
+                }
             } catch (_: Exception) {
                 statusMessage = "Не удалось открыть браузер для оплаты"
             }

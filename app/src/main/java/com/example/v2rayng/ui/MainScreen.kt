@@ -94,6 +94,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
     var newAccountUsername by remember { mutableStateOf("") }
     var showPaymentDialog by rememberSaveable { mutableStateOf(false) }
     var selectedPaymentMonths by rememberSaveable { mutableIntStateOf(1) }
+    var promoCodeInput by rememberSaveable { mutableStateOf("") }
     var showThemeDialog by rememberSaveable { mutableStateOf(false) }
     var showRoutingDialog by rememberSaveable { mutableStateOf(false) }
     var showLogsDialog by rememberSaveable { mutableStateOf(false) }
@@ -1055,9 +1056,19 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     }
                 }
 
+                OutlinedTextField(
+                    value = promoCodeInput,
+                    onValueChange = { promoCodeInput = it.trim() },
+                    label = { Text("Промокод (если есть)") },
+                    placeholder = { Text("Введите промокод на скидку") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
                 Button(
                     onClick = {
-                        viewModel.openPaymentUrl(context, selectedPaymentMonths)
+                        viewModel.openPaymentUrl(context, selectedPaymentMonths, promoCodeInput)
                         showPaymentDialog = false
                     },
                     modifier = Modifier.fillMaxWidth(),
