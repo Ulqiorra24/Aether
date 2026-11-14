@@ -50,7 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MainScreen(viewModel: MainViewModel = viewModel()) {
     val context = LocalContext.current
@@ -955,12 +955,26 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
     }
 
     if (showPaymentDialog) {
-        ModalBottomSheet(onDismissRequest = { showPaymentDialog = false }) {
+        val paymentSheetScroll = rememberScrollState()
+        val isImeVisible = WindowInsets.isImeVisible
+        LaunchedEffect(isImeVisible) {
+            if (isImeVisible) {
+                paymentSheetScroll.animateScrollTo(paymentSheetScroll.maxValue)
+            }
+        }
+
+        ModalBottomSheet(
+            onDismissRequest = { showPaymentDialog = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .verticalScroll(paymentSheetScroll)
                     .padding(horizontal = 24.dp)
-                    .padding(bottom = 32.dp),
+                    .padding(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 val activeLogin = viewModel.userEmail.ifBlank { viewModel.username }
@@ -1062,6 +1076,9 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     label = { Text("Промокод (если есть)") },
                     placeholder = { Text("Введите промокод на скидку") },
                     singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                    ),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )

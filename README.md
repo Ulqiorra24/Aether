@@ -1,17 +1,20 @@
 # Aether (Android x-ui VPN Client)
 
-[![Download APK](https://img.shields.io/badge/Download-APK_v0.8.1-2EA043?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Ulqiorra24/Aether/releases/latest)
+[![Download APK](https://img.shields.io/badge/Download-APK_v0.8.2-2EA043?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Ulqiorra24/Aether/releases/latest)
 [![Release](https://img.shields.io/github/v/release/Ulqiorra24/Aether?style=for-the-badge&label=Latest%20Release&color=0969DA)](https://github.com/Ulqiorra24/Aether/releases/latest)
 
-> 📦 **[Скачать Aether APK (v0.8.1)](https://github.com/Ulqiorra24/Aether/releases/latest)** — официальный готов к установке файл релиза для Android.
+> 📦 **[Скачать Aether APK (v0.8.2)](https://github.com/Ulqiorra24/Aether/releases/latest)** — официальный готов к установке файл релиза для Android.
 
 ---
 
 Android-клиент подписок x-ui / 3x-ui. VPN реализован через Xray-core
 (AndroidLibXrayLite) и встроенный TUN inbound.
 
-## Что нового в v0.8.1
+## Что нового в v0.8.2
 
+- ⌨️ **Адаптация диалога оплаты под клавиатуру**:
+  - Добавлена плавная прокрутка (`verticalScroll`) и учет высоты клавиатуры (`imePadding`, `adjustResize`).
+  - Поле ввода промокода и кнопка перехода к оплате автоматически сдвигаются вверх и остаются доступными при открытой клавиатуре.
 - 🎟️ **Поддержка промокодов при оплате**:
   - В диалоге продления подписки добавлено поле для ввода промокода.
   - Промокод передается в API Lava.top, скидка рассчитывается автоматически перед переходом к оплате.
