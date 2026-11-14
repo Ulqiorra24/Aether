@@ -907,33 +907,74 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
 
     val updateInfo = viewModel.availableUpdate
     if (updateInfo != null) {
+        val notesScrollState = rememberScrollState()
         AlertDialog(
             onDismissRequest = { if (!viewModel.isDownloadingUpdate) viewModel.dismissUpdate() },
             title = { Text("Доступно обновление (${updateInfo.tagName})") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Text("Найдена новая версия Aether. Хотите скачать и обновить приложение прямо сейчас?")
-                    if (updateInfo.releaseNotes.isNotBlank()) {
-                        Text(
-                            text = updateInfo.releaseNotes,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    viewModel.updateDownloadError?.let {
-                        Text(it, color = MaterialTheme.colorScheme.error)
-                    }
+
                     if (viewModel.isDownloadingUpdate) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        val downloaded = viewModel.updateDownloadedBytes
-                        val total = viewModel.updateTotalBytes
-                        if (total > 0L) {
-                            val fraction = (downloaded.toDouble() / total).coerceIn(0.0, 1.0)
-                            LinearProgressIndicator(progress = { fraction.toFloat() }, modifier = Modifier.fillMaxWidth())
-                            Text("${(fraction * 100).toInt()}% · ${android.text.format.Formatter.formatShortFileSize(context, downloaded)} / ${android.text.format.Formatter.formatShortFileSize(context, total)}")
-                        } else {
-                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                            Text("${android.text.format.Formatter.formatShortFileSize(context, downloaded)} · размер уточняется")
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val downloaded = viewModel.updateDownloadedBytes
+                                val total = viewModel.updateTotalBytes
+                                if (total > 0L) {
+                                    val fraction = (downloaded.toDouble() / total).coerceIn(0.0, 1.0)
+                                    LinearProgressIndicator(
+                                        progress = { fraction.toFloat() },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Text(
+                                        text = "${(fraction * 100).toInt()}% · ${android.text.format.Formatter.formatShortFileSize(context, downloaded)} из ${android.text.format.Formatter.formatShortFileSize(context, total)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                } else {
+                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                    Text(
+                                        text = "Загрузка: ${android.text.format.Formatter.formatShortFileSize(context, downloaded)}…",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    viewModel.updateDownloadError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    if (updateInfo.releaseNotes.isNotBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 240.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .verticalScroll(notesScrollState)
+                                    .padding(12.dp)
+                            ) {
+                                Text(
+                                    text = updateInfo.releaseNotes,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
@@ -943,7 +984,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     onClick = { viewModel.downloadAndInstallUpdate(context, updateInfo) },
                     enabled = !viewModel.isDownloadingUpdate
                 ) {
-                    Text("Установить")
+                    Text(if (viewModel.isDownloadingUpdate) "Загрузка…" else "Скачать и обновить")
                 }
             },
             dismissButton = {
