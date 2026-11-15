@@ -89,7 +89,12 @@ object V2RayConfigParser {
         )
     }
 
-    fun createConfig(node: ParsedNode, bypassLan: Boolean = true, bypassRu: Boolean = true): String {
+    fun createConfig(
+        node: ParsedNode,
+        bypassLan: Boolean = true,
+        bypassRu: Boolean = true,
+        hasGeoAssets: Boolean = true
+    ): String {
         val reality = JSONObject()
             .put("serverName", node.serverName)
             .put("fingerprint", node.fingerprint)
@@ -137,96 +142,106 @@ object V2RayConfigParser {
             .put("streamSettings", stream)
         val rules = JSONArray()
         if (bypassLan) {
+            val lanIps = mutableListOf(
+                "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+                "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10"
+            )
+            if (hasGeoAssets) {
+                lanIps.add("geoip:private")
+            }
             rules.put(
                 JSONObject()
                     .put("type", "field")
                     .put("outboundTag", "direct")
-                    .put("ip", JSONArray(listOf(
-                        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
-                        "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10",
-                        "geoip:private"
-                    )))
+                    .put("ip", JSONArray(lanIps))
                     .put("domain", JSONArray(listOf(
                         "regexp:^.*\\.local$", "regexp:^.*\\.lan$", "domain:local"
                     )))
             )
         }
         if (bypassRu) {
+            val ruDomains = mutableListOf(
+                "domain:ru",
+                "domain:xn--p1ai",
+                "domain:su",
+                "domain:by",
+                "domain:kz",
+                "domain:wb.ru",
+                "domain:wbbasket.ru",
+                "domain:wbstatic.net",
+                "domain:wildberries.ru",
+                "domain:wildberries.com",
+                "domain:wildberries.by",
+                "domain:wildberries.kz",
+                "domain:ozon.ru",
+                "domain:ozonusercontent.com",
+                "domain:ozone.ru",
+                "domain:ozon-st.ru",
+                "domain:ozon.by",
+                "domain:ozon.kz",
+                "domain:ozon.com",
+                "domain:ozonru.me",
+                "domain:pvz-ozon.ru",
+                "domain:vk.com",
+                "domain:vk.me",
+                "domain:vk.ru",
+                "domain:yandex.ru",
+                "domain:yandex.com",
+                "domain:yandex.net",
+                "domain:yastatic.net",
+                "domain:ya.ru",
+                "domain:dzen.ru",
+                "domain:mail.ru",
+                "domain:ok.ru",
+                "domain:rambler.ru",
+                "domain:avito.ru",
+                "domain:avito.st",
+                "domain:sberbank.ru",
+                "domain:sber.ru",
+                "domain:tbank.ru",
+                "domain:tinkoff.ru",
+                "domain:vtb.ru",
+                "domain:alfabank.ru",
+                "domain:gosuslugi.ru",
+                "domain:mos.ru",
+                "domain:nalog.ru",
+                "domain:nalog.gov.ru",
+                "domain:kremlin.ru",
+                "domain:gov.ru",
+                "domain:rutube.ru",
+                "domain:kinopoisk.ru",
+                "domain:hh.ru",
+                "domain:2gis.ru",
+                "domain:2gis.com",
+                "domain:nspk.ru",
+                "domain:sbp.ru",
+                "domain:cbr.ru",
+                "domain:mir-pay.ru",
+                "domain:dns-shop.ru",
+                "domain:mvideo.ru",
+                "domain:eldorado.ru",
+                "domain:megamarket.ru",
+                "domain:samokat.ru"
+            )
+            if (hasGeoAssets) {
+                ruDomains.add(0, "geosite:category-ru")
+                ruDomains.add(1, "geosite:category-gov-ru")
+                ruDomains.add(2, "geosite:tld-ru")
+            }
             rules.put(
                 JSONObject()
                     .put("type", "field")
                     .put("outboundTag", "direct")
-                    .put("domain", JSONArray(listOf(
-                        "geosite:ru",
-                        "geosite:category-ru",
-                        "domain:ru",
-                        "domain:xn--p1ai",
-                        "domain:su",
-                        "domain:by",
-                        "domain:kz",
-                        "domain:wb.ru",
-                        "domain:wbbasket.ru",
-                        "domain:wbstatic.net",
-                        "domain:wildberries.ru",
-                        "domain:wildberries.com",
-                        "domain:wildberries.by",
-                        "domain:wildberries.kz",
-                        "domain:ozon.ru",
-                        "domain:ozonusercontent.com",
-                        "domain:ozone.ru",
-                        "domain:ozon-st.ru",
-                        "domain:ozon.by",
-                        "domain:ozon.kz",
-                        "domain:ozon.com",
-                        "domain:ozonru.me",
-                        "domain:pvz-ozon.ru",
-                        "domain:vk.com",
-                        "domain:vk.me",
-                        "domain:vk.ru",
-                        "domain:yandex.ru",
-                        "domain:yandex.com",
-                        "domain:yandex.net",
-                        "domain:yastatic.net",
-                        "domain:ya.ru",
-                        "domain:dzen.ru",
-                        "domain:mail.ru",
-                        "domain:ok.ru",
-                        "domain:rambler.ru",
-                        "domain:avito.ru",
-                        "domain:avito.st",
-                        "domain:sberbank.ru",
-                        "domain:sber.ru",
-                        "domain:tbank.ru",
-                        "domain:tinkoff.ru",
-                        "domain:vtb.ru",
-                        "domain:alfabank.ru",
-                        "domain:gosuslugi.ru",
-                        "domain:mos.ru",
-                        "domain:nalog.ru",
-                        "domain:kremlin.ru",
-                        "domain:gov.ru",
-                        "domain:rutube.ru",
-                        "domain:kinopoisk.ru",
-                        "domain:hh.ru",
-                        "domain:2gis.ru",
-                        "domain:2gis.com",
-                        "domain:nspk.ru",
-                        "domain:sbp.ru",
-                        "domain:cbr.ru",
-                        "domain:mir-pay.ru",
-                        "domain:dns-shop.ru",
-                        "domain:mvideo.ru",
-                        "domain:eldorado.ru",
-                        "domain:megamarket.ru",
-                        "domain:samokat.ru"
-                    )))
+                    .put("domain", JSONArray(ruDomains))
             )
-            rules.put(
-                JSONObject()
-                    .put("type", "field")
-                    .put("outboundTag", "direct")
-                    .put("ip", JSONArray(listOf("geoip:ru")))
-            )
+            if (hasGeoAssets) {
+                rules.put(
+                    JSONObject()
+                        .put("type", "field")
+                        .put("outboundTag", "direct")
+                        .put("ip", JSONArray(listOf("geoip:ru")))
+                )
+            }
         }
 
         val sniffing = JSONObject()
@@ -246,7 +261,6 @@ object V2RayConfigParser {
             .put("port", SOCKS_PORT)
             .put("protocol", "socks")
             .put("settings", JSONObject().put("auth", "noauth").put("udp", true))
-            .put("sniffing", sniffing)
 
         return JSONObject()
             .put("log", JSONObject()

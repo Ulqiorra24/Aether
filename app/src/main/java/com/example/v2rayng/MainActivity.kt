@@ -17,10 +17,15 @@ import com.example.v2rayng.ui.MainScreen
 import com.example.v2rayng.ui.MainViewModel
 import com.example.v2rayng.ui.SplashScreen
 import com.example.v2rayng.ui.theme.AetherTheme
+import com.example.v2rayng.vpn.V2RayVpnService
+import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        thread(name = "AssetExtractor", isDaemon = true) {
+            V2RayVpnService.extractAssets(applicationContext)
+        }
         setContent {
             val viewModel: MainViewModel = viewModel()
             var showSplash by remember { mutableStateOf(true) }

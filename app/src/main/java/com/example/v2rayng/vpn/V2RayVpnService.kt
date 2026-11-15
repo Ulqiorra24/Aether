@@ -71,6 +71,35 @@ class V2RayVpnService : VpnService() {
         fun clearLogs() {
             mutableLogs.value = emptyList()
         }
+
+        fun extractAssets(context: android.content.Context) {
+            val dir = context.filesDir
+            for (name in listOf("geoip.dat", "geosite.dat")) {
+                val target = File(dir, name)
+                try {
+                    val assetFd = try { context.assets.openFd(name) } catch (_: Exception) { null }
+                    val assetLen = assetFd?.length ?: -1L
+                    assetFd?.close()
+                    val needsExtract = !target.exists() || target.length() == 0L || (assetLen > 0 && target.length() != assetLen)
+                    if (needsExtract) {
+                        val tmp = File(dir, "$name.tmp")
+                        context.assets.open(name).use { input ->
+                            tmp.outputStream().use { out -> input.copyTo(out) }
+                        }
+                        if (target.exists()) {
+                            target.delete()
+                        }
+                        if (!tmp.renameTo(target)) {
+                            tmp.copyTo(target, overwrite = true)
+                            tmp.delete()
+                        }
+                        addLog("INFO", "База $name готова (${target.length() / 1024} КБ)")
+                    }
+                } catch (e: Exception) {
+                    addLog("WARN", "Asset $name: ${e.message}")
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -104,8 +133,10 @@ class V2RayVpnService : VpnService() {
                         check(prepare(this@V2RayVpnService) == null) { "Разрешение VPN отозвано" }
                         val node = V2RayConfigParser.parse(uri)
                         addLog("INFO", "Узел: ${node.name}")
-                        val config = V2RayConfigParser.createConfig(node, bypassLan, bypassRu)
                         extractAssets(applicationContext)
+                        val hasGeoAssets = File(filesDir, "geosite.dat").exists() && File(filesDir, "geosite.dat").length() > 0 &&
+                                           File(filesDir, "geoip.dat").exists() && File(filesDir, "geoip.dat").length() > 0
+                        val config = V2RayConfigParser.createConfig(node, bypassLan, bypassRu, hasGeoAssets = hasGeoAssets)
                         Seq.setContext(applicationContext)
                         Libv2ray.initCoreEnv(filesDir.absolutePath, "")
                         core = Libv2ray.newCoreController(object : CoreCallbackHandler {
@@ -154,11 +185,21 @@ class V2RayVpnService : VpnService() {
                         if (!stopRequested) verifyProxyConnection()
                     } catch (e: IllegalArgumentException) {
                         errorMessage = e.message ?: "Некорректная конфигурация сервера"
+                        addLog("ERROR", "Конфигурация: ${e.message}")
                         closeResources()
-                    } catch (_: Exception) {
-                        errorMessage = "Не удалось подключиться. Проверьте сервер и параметры REALITY в подписке."
+                    } catch (e: Exception) {
+                        addLog("ERROR", "${e.javaClass.simpleName}: ${e.message}")
+                        android.util.Log.e("V2RayVpnService", "Connection error", e)
+                        errorMessage = when (e) {
+                            is java.net.SocketTimeoutException -> "Время ожидания сервера истекло. Проверьте узел."
+                            is java.net.ConnectException -> "Не удалось подключиться к серверу."
+                            is IllegalStateException -> e.message ?: "Ядро VPN не запустилось"
+                            else -> e.message?.takeIf { it.isNotBlank() }
+                                ?: "Не удалось подключиться. Проверьте сервер и параметры REALITY в подписке."
+                        }
                         closeResources()
-                    } catch (_: LinkageError) {
+                    } catch (e: LinkageError) {
+                        addLog("ERROR", "Ошибка ядра: ${e.message}")
                         errorMessage = "Не удалось загрузить VPN-ядро для этого устройства"
                         closeResources()
                     }
@@ -202,29 +243,6 @@ class V2RayVpnService : VpnService() {
         } finally {
             socket.close()
             probeSocket = null
-        }
-    }
-
-    private fun extractAssets(context: android.content.Context) {
-        val dir = context.filesDir
-        for (name in listOf("geoip.dat", "geosite.dat")) {
-            val target = File(dir, name)
-            try {
-                val assetFd = try { context.assets.openFd(name) } catch (_: Exception) { null }
-                val assetLen = assetFd?.length ?: -1L
-                assetFd?.close()
-                if (!target.exists() || (assetLen > 0 && target.length() != assetLen)) {
-                    context.assets.open(name).use { input ->
-                        val tmp = File(dir, "$name.tmp")
-                        tmp.outputStream().use { out -> input.copyTo(out) }
-                        if (tmp.renameTo(target)) {
-                            addLog("INFO", "База $name готова (${target.length() / 1024} КБ)")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                addLog("WARN", "Asset $name: ${e.message}")
-            }
         }
     }
 

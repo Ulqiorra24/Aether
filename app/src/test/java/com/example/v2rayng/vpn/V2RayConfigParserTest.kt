@@ -45,7 +45,7 @@ class V2RayConfigParserTest {
     }
 
     @Test fun bypassRuAddsRuDomainsToDirectRouting() {
-        val config = JSONObject(V2RayConfigParser.createConfig(V2RayConfigParser.parse(link), bypassLan = false, bypassRu = true))
+        val config = JSONObject(V2RayConfigParser.createConfig(V2RayConfigParser.parse(link), bypassLan = false, bypassRu = true, hasGeoAssets = true))
         val rules = config.getJSONObject("routing").getJSONArray("rules")
         assertEquals(2, rules.length())
         val domainRule = rules.getJSONObject(0)
@@ -53,7 +53,7 @@ class V2RayConfigParserTest {
         assertTrue(domainRule.getJSONArray("domain").toString().contains("domain:ru"))
         assertTrue(domainRule.getJSONArray("domain").toString().contains("domain:wildberries.ru"))
         assertTrue(domainRule.getJSONArray("domain").toString().contains("domain:ozon.ru"))
-        assertTrue(domainRule.getJSONArray("domain").toString().contains("geosite:ru"))
+        assertTrue(domainRule.getJSONArray("domain").toString().contains("geosite:category-ru"))
         val ipRule = rules.getJSONObject(1)
         assertEquals("direct", ipRule.getString("outboundTag"))
         assertTrue(ipRule.getJSONArray("ip").toString().contains("geoip:ru"))
@@ -63,6 +63,17 @@ class V2RayConfigParserTest {
         assertTrue(tunIn.getJSONObject("sniffing").getBoolean("enabled"))
         assertEquals("IPIfNonMatch", config.getJSONObject("routing").getString("domainStrategy"))
         assertTrue(config.getJSONObject("log").has("access"))
+    }
+
+    @Test fun bypassRuWithoutGeoAssetsDoesNotIncludeGeositeOrGeoip() {
+        val config = JSONObject(V2RayConfigParser.createConfig(V2RayConfigParser.parse(link), bypassLan = false, bypassRu = true, hasGeoAssets = false))
+        val rules = config.getJSONObject("routing").getJSONArray("rules")
+        assertEquals(1, rules.length())
+        val domainRule = rules.getJSONObject(0)
+        assertEquals("direct", domainRule.getString("outboundTag"))
+        assertTrue(domainRule.getJSONArray("domain").toString().contains("domain:ru"))
+        assertTrue(domainRule.getJSONArray("domain").toString().contains("domain:wildberries.ru"))
+        assertFalse(domainRule.getJSONArray("domain").toString().contains("geosite:"))
     }
 
     @Test fun secretObfuscatorDecryptsCorrectHost() {
