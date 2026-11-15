@@ -12,6 +12,7 @@ class VpnPrefs(context: Context) {
     private val ignoredAccounts = setOf("test", "qg9xa3obc1ban6o5")
 
     init {
+        val token = prefs.getString("auth_token", "") ?: ""
         val savedUser = prefs.getString("current_username", "") ?: ""
         val savedEmail = prefs.getString("user_email", "") ?: ""
         val accsStr = prefs.getString("accounts_list", "") ?: ""
@@ -21,17 +22,32 @@ class VpnPrefs(context: Context) {
 
         val editor = prefs.edit()
         var changed = false
-        if (savedUser in ignoredAccounts) {
-            editor.putString("current_username", cleanAccounts.firstOrNull() ?: "")
-            changed = true
-        }
-        if (savedEmail in ignoredAccounts) {
-            editor.remove("user_email")
-            changed = true
-        }
-        if (accsStr.split(",").any { it.trim() in ignoredAccounts }) {
-            editor.putString("accounts_list", cleanAccounts.joinToString(","))
-            changed = true
+        if (token.isBlank()) {
+            if (savedUser.isNotBlank()) {
+                editor.remove("current_username")
+                changed = true
+            }
+            if (savedEmail.isNotBlank()) {
+                editor.remove("user_email")
+                changed = true
+            }
+            if (accsStr.isNotBlank()) {
+                editor.remove("accounts_list")
+                changed = true
+            }
+        } else {
+            if (savedUser in ignoredAccounts) {
+                editor.putString("current_username", cleanAccounts.firstOrNull() ?: "")
+                changed = true
+            }
+            if (savedEmail in ignoredAccounts) {
+                editor.remove("user_email")
+                changed = true
+            }
+            if (accsStr.split(",").any { it.trim() in ignoredAccounts }) {
+                editor.putString("accounts_list", cleanAccounts.joinToString(","))
+                changed = true
+            }
         }
         if (changed) {
             editor.apply()
@@ -40,6 +56,7 @@ class VpnPrefs(context: Context) {
 
     var accounts: List<String>
         get() {
+            if (authToken.isBlank()) return emptyList()
             val accsStr = prefs.getString("accounts_list", "") ?: ""
             return accsStr.split(",")
                 .map { it.trim() }
@@ -52,6 +69,7 @@ class VpnPrefs(context: Context) {
 
     var currentUsername: String
         get() {
+            if (authToken.isBlank()) return ""
             val savedUser = prefs.getString("current_username", "") ?: ""
             if (savedUser in ignoredAccounts || (savedUser.isNotBlank() && savedUser !in accounts)) {
                 return accounts.firstOrNull() ?: ""
@@ -93,17 +111,21 @@ class VpnPrefs(context: Context) {
 
     var userEmail: String
         get() {
+            if (authToken.isBlank()) return ""
             val email = prefs.getString("user_email", "") ?: ""
             return if (email in ignoredAccounts) "" else email
         }
         set(value) = prefs.edit().putString("user_email", value).apply()
 
     var paymentEmail: String
-        get() = prefs.getString("payment_email", "") ?: ""
+        get() {
+            if (authToken.isBlank()) return ""
+            return prefs.getString("payment_email", "") ?: ""
+        }
         set(value) = prefs.edit().putString("payment_email", value).apply()
 
     val isLoggedIn: Boolean
-        get() = (authToken.isNotBlank() || currentUsername.isNotBlank()) && currentUsername !in ignoredAccounts
+        get() = authToken.isNotBlank() && currentUsername.isNotBlank() && currentUsername !in ignoredAccounts
 
     fun clearAuth() {
         prefs.edit()

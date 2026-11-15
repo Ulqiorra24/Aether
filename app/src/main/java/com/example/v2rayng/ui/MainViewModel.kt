@@ -124,12 +124,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 logs = it
             }
         }
-        if (subscriptionContent.isNotBlank()) {
+        if (isLoggedIn && subscriptionContent.isNotBlank()) {
             parseNodes(subscriptionContent)
-        } else if (username.isNotBlank()) {
+        } else if (isLoggedIn && username.isNotBlank()) {
             fetchSubscriptionFor(username)
         } else {
-            statusMessage = "Добавьте подписку для подключения"
+            statusMessage = "Выполните вход для подключения"
         }
         checkForUpdates(application)
     }
@@ -464,6 +464,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun logout(context: android.content.Context? = null) {
+        reconnectJob?.cancel()
+        subscriptionJob?.cancel()
+        pingJob?.cancel()
+        isLoading = false
         if (isConnected || isConnecting || isStopping) {
             val appContext = context ?: getApplication<Application>()
             appContext.startService(Intent(appContext, V2RayVpnService::class.java).apply {
@@ -472,12 +476,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         prefs.clearAuth()
         prefs.currentUsername = ""
+        prefs.accounts = emptyList()
+        accounts = emptyList()
         isLoggedIn = false
         userEmail = ""
         username = ""
+        paymentEmail = ""
         subscriptionContent = ""
         nodes = emptyList()
         selectedNodeIndex = 0
+        authError = null
+        paymentError = null
         statusMessage = "Выполните вход для подключения"
     }
 
