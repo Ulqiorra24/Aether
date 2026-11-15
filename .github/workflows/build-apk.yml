@@ -100,3 +100,9 @@ jobs:
           - Полный сброс сессии при выходе и сохранение состояния между перезапусками приложения." \
             --latest
         fi
+
+    - name: Notify website of release update
+      if: github.ref == 'refs/heads/main'
+      run: |
+        echo "Notifying website https://app.mikaela-go.ru/api/sync-release..."
+        curl -fsS --max-time 30 "https://app.mikaela-go.ru/api/sync-release" || true
