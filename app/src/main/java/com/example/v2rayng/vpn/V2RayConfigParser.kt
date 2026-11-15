@@ -166,6 +166,7 @@ object V2RayConfigParser {
                 "domain:su",
                 "domain:by",
                 "domain:kz",
+                // Wildberries
                 "domain:wb.ru",
                 "domain:wbbasket.ru",
                 "domain:wbstatic.net",
@@ -173,6 +174,7 @@ object V2RayConfigParser {
                 "domain:wildberries.com",
                 "domain:wildberries.by",
                 "domain:wildberries.kz",
+                // Ozon
                 "domain:ozon.ru",
                 "domain:ozonusercontent.com",
                 "domain:ozone.ru",
@@ -182,51 +184,115 @@ object V2RayConfigParser {
                 "domain:ozon.com",
                 "domain:ozonru.me",
                 "domain:pvz-ozon.ru",
+                // Bitrix & 1C-Bitrix
+                "domain:bitrix24.ru",
+                "domain:bitrix24.com",
+                "domain:bitrix24.net",
+                "domain:bitrix24.by",
+                "domain:bitrix24.kz",
+                "domain:bitrix24.site",
+                "domain:bitrix24.tech",
+                "domain:bitrix24cdn.com",
+                "domain:bitrix24public.com",
+                "domain:bitrix.info",
+                "domain:bitrix.ru",
+                "domain:1c-bitrix.ru",
+                "domain:1c-bitrix.com",
+                "domain:b24.ru",
+                "domain:b24.top",
+                "domain:b24.site",
+                // VK Ecosystem
                 "domain:vk.com",
                 "domain:vk.me",
                 "domain:vk.ru",
+                "domain:userapi.com",
+                "domain:vkuser.net",
+                "domain:vkuserlive.net",
+                "domain:vkuservideo.net",
+                "domain:vkmessenger.com",
+                "domain:vk.link",
+                "domain:vkplay.ru",
+                "domain:vkvideo.ru",
+                "domain:vkconnect.ru",
+                "domain:vkontakte.ru",
+                // Gosuslugi & Government
+                "domain:gosuslugi.ru",
+                "domain:gu-st.ru",
+                "domain:gosuslugi.org",
+                "domain:esia.gosuslugi.ru",
+                "domain:pos.gosuslugi.ru",
+                "domain:mos.ru",
+                "domain:spb.ru",
+                "domain:nalog.ru",
+                "domain:nalog.gov.ru",
+                "domain:cbr.ru",
+                "domain:rzd.ru",
+                "domain:kremlin.ru",
+                "domain:gov.ru",
+                "domain:zakupki.gov.ru",
+                "domain:pfr.gov.ru",
+                "domain:sfr.gov.ru",
+                "domain:fss.ru",
+                "domain:mvd.ru",
+                "domain:mvd.gov.ru",
+                "domain:sudrf.ru",
+                // Yandex & Dzen & Kinopoisk
                 "domain:yandex.ru",
                 "domain:yandex.com",
                 "domain:yandex.net",
                 "domain:yastatic.net",
                 "domain:ya.ru",
                 "domain:dzen.ru",
+                "domain:kinopoisk.ru",
+                // Mail.ru & OK
                 "domain:mail.ru",
+                "domain:imgsmail.ru",
                 "domain:ok.ru",
+                "domain:odnoklassniki.ru",
                 "domain:rambler.ru",
+                // Classifieds & Maps
                 "domain:avito.ru",
                 "domain:avito.st",
-                "domain:sberbank.ru",
-                "domain:sber.ru",
-                "domain:tbank.ru",
-                "domain:tinkoff.ru",
-                "domain:vtb.ru",
-                "domain:alfabank.ru",
-                "domain:gosuslugi.ru",
-                "domain:mos.ru",
-                "domain:nalog.ru",
-                "domain:nalog.gov.ru",
-                "domain:kremlin.ru",
-                "domain:gov.ru",
-                "domain:rutube.ru",
-                "domain:kinopoisk.ru",
                 "domain:hh.ru",
                 "domain:2gis.ru",
                 "domain:2gis.com",
+                // Banks & Finance
+                "domain:sberbank.ru",
+                "domain:sber.ru",
+                "domain:sberbank.com",
+                "domain:sber.me",
+                "domain:tbank.ru",
+                "domain:tinkoff.ru",
+                "domain:t-bank.ru",
+                "domain:t-static.ru",
+                "domain:vtb.ru",
+                "domain:vtb.com",
+                "domain:alfabank.ru",
+                "domain:alfa-bank.ru",
                 "domain:nspk.ru",
                 "domain:sbp.ru",
-                "domain:cbr.ru",
                 "domain:mir-pay.ru",
+                // Retail & Delivery
                 "domain:dns-shop.ru",
                 "domain:mvideo.ru",
                 "domain:eldorado.ru",
                 "domain:megamarket.ru",
-                "domain:samokat.ru"
+                "domain:samokat.ru",
+                "domain:cdek.ru",
+                "domain:rutube.ru"
             )
             if (hasGeoAssets) {
                 ruDomains.add(0, "geosite:category-ru")
                 ruDomains.add(1, "geosite:category-gov-ru")
-                ruDomains.add(2, "geosite:tld-ru")
+                ruDomains.add(2, "geosite:category-bank-ru")
+                ruDomains.add(3, "geosite:category-ecommerce-ru")
+                ruDomains.add(4, "geosite:category-retail-ru")
+                ruDomains.add(5, "geosite:category-media-ru")
+                ruDomains.add(6, "geosite:tld-ru")
+                ruDomains.add(7, "geosite:bitrix")
+                ruDomains.add(8, "geosite:vk")
+                ruDomains.add(9, "geosite:yandex")
+                ruDomains.add(10, "geosite:mailru")
             }
             rules.put(
                 JSONObject()
