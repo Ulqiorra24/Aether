@@ -47,11 +47,22 @@ class V2RayConfigParserTest {
     @Test fun bypassRuAddsRuDomainsToDirectRouting() {
         val config = JSONObject(V2RayConfigParser.createConfig(V2RayConfigParser.parse(link), bypassLan = false, bypassRu = true))
         val rules = config.getJSONObject("routing").getJSONArray("rules")
-        assertEquals(1, rules.length())
-        val rule = rules.getJSONObject(0)
-        assertEquals("direct", rule.getString("outboundTag"))
-        assertTrue(rule.getJSONArray("domain").toString().contains("domain:ru"))
-        assertTrue(rule.getJSONArray("domain").toString().contains("domain:gosuslugi.ru"))
+        assertEquals(2, rules.length())
+        val domainRule = rules.getJSONObject(0)
+        assertEquals("direct", domainRule.getString("outboundTag"))
+        assertTrue(domainRule.getJSONArray("domain").toString().contains("domain:ru"))
+        assertTrue(domainRule.getJSONArray("domain").toString().contains("domain:wildberries.ru"))
+        assertTrue(domainRule.getJSONArray("domain").toString().contains("domain:ozon.ru"))
+        assertTrue(domainRule.getJSONArray("domain").toString().contains("geosite:ru"))
+        val ipRule = rules.getJSONObject(1)
+        assertEquals("direct", ipRule.getString("outboundTag"))
+        assertTrue(ipRule.getJSONArray("ip").toString().contains("geoip:ru"))
+
+        // Validate sniffing and access log are enabled
+        val tunIn = config.getJSONArray("inbounds").getJSONObject(0)
+        assertTrue(tunIn.getJSONObject("sniffing").getBoolean("enabled"))
+        assertEquals("IPIfNonMatch", config.getJSONObject("routing").getString("domainStrategy"))
+        assertTrue(config.getJSONObject("log").has("access"))
     }
 
     @Test fun secretObfuscatorDecryptsCorrectHost() {

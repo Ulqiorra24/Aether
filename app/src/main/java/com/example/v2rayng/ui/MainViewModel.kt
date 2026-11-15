@@ -124,10 +124,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 logs = it
             }
         }
-        if (isLoggedIn && subscriptionContent.isNotBlank()) {
-            parseNodes(subscriptionContent)
-        } else if (isLoggedIn && username.isNotBlank()) {
-            fetchSubscriptionFor(username)
+        if (isLoggedIn && username.isNotBlank()) {
+            val saved = decodeSubscriptionContent(prefs.getSubscription(username))
+            if (saved.isNotBlank()) {
+                subscriptionContent = saved
+                parseNodes(saved)
+            }
+            if (nodes.isEmpty()) {
+                fetchSubscriptionFor(username)
+            }
         } else {
             statusMessage = "Выполните вход для подключения"
         }
@@ -290,13 +295,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (newUsername.isBlank()) {
             subscriptionContent = ""
             nodes = emptyList()
-            statusMessage = "Добавьте подписку для подключения"
+            statusMessage = "Выполните вход для подключения"
             return
         }
-        subscriptionContent = prefs.getSubscription(newUsername)
-        parseNodes(subscriptionContent)
+        val saved = decodeSubscriptionContent(prefs.getSubscription(newUsername))
+        if (saved.isNotBlank()) {
+            subscriptionContent = saved
+            parseNodes(saved)
+        } else {
+            subscriptionContent = ""
+            nodes = emptyList()
+        }
         if (wasActive && context != null) {
-            if (subscriptionContent.isBlank()) {
+            if (nodes.isEmpty()) {
                 val intent = Intent(context, V2RayVpnService::class.java).apply {
                     action = V2RayVpnService.ACTION_STOP
                 }
@@ -306,10 +317,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 reconnectVpn(context)
             }
         } else {
-            if (subscriptionContent.isBlank()) {
+            if (nodes.isEmpty()) {
                 fetchSubscriptionFor(newUsername)
             } else {
-                statusMessage = "Аккаунт переключен: $newUsername"
+                statusMessage = "Готов к подключению"
                 pingNodes()
             }
         }
@@ -446,18 +457,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun decodeSubscriptionContent(content: String): String {
+        val trimmed = content.trim()
+        if (trimmed.startsWith("vless://") || trimmed.startsWith("vmess://") || trimmed.startsWith("ss://") || trimmed.startsWith("trojan://")) {
+            return trimmed
+        }
+        return try {
+            val bytes = android.util.Base64.decode(trimmed, android.util.Base64.DEFAULT)
+            val decoded = String(bytes, Charsets.UTF_8).trim()
+            if (decoded.contains("://")) decoded else trimmed
+        } catch (_: Exception) {
+            trimmed
+        }
+    }
+
     private fun handleAuthSuccess(email: String, authResult: com.example.v2rayng.data.AuthResult) {
         prefs.authToken = authResult.token
         prefs.userEmail = email
         userEmail = email
         isLoggedIn = true
         authError = null
-        addAccount(email)
-        selectAccount(email)
-        if (!authResult.subscriptionContent.isNullOrBlank()) {
-            subscriptionContent = authResult.subscriptionContent
-            prefs.saveSubscription(email, authResult.subscriptionContent)
-            parseNodes(authResult.subscriptionContent)
+        if (!accounts.contains(email)) {
+            val updated = accounts + email
+            accounts = updated
+            prefs.accounts = updated
+        }
+        username = email
+        prefs.currentUsername = email
+
+        val rawSub = authResult.subscriptionContent.orEmpty()
+        val decoded = decodeSubscriptionContent(rawSub)
+        if (decoded.contains("://")) {
+            subscriptionContent = decoded
+            prefs.saveSubscription(email, decoded)
+            parseNodes(decoded)
         } else {
             fetchSubscriptionFor(email)
         }
@@ -535,20 +568,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (targetUser != username || targetUser !in accounts) return@launch
             isLoading = false
             result.onSuccess { content ->
-                subscriptionContent = content
-                prefs.saveSubscription(targetUser, content)
-                parseNodes(content)
-                statusMessage = "Подписка обновлена! Найдено узлов: ${nodes.size}"
+                val decoded = decodeSubscriptionContent(content)
+                subscriptionContent = decoded
+                prefs.saveSubscription(targetUser, decoded)
+                parseNodes(decoded)
+                statusMessage = "Готов к подключению (${nodes.size} узлов)"
                 pingNodes()
             }.onFailure { error ->
-                statusMessage = "Ошибка: ${error.localizedMessage ?: "Неизвестная ошибка"}"
+                statusMessage = "Ошибка подписки: ${error.localizedMessage ?: "Сбой"}"
             }
         }
     }
 
     private fun parseNodes(content: String) {
+        val decoded = decodeSubscriptionContent(content)
         val validSchemes = setOf("vless", "vmess", "trojan", "ss", "ssr", "socks", "socks5", "hysteria", "hysteria2", "tuic", "juicity")
-        nodes = content.lines()
+        nodes = decoded.lines()
             .filter { line ->
                 val trimmed = line.trim()
                 if (trimmed.isBlank() || !trimmed.contains("://")) return@filter false
@@ -568,8 +603,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 VpnNode(name, uri)
             }
-        if (selectedNodeIndex >= nodes.size) {
-            selectedNodeIndex = 0
+        if (nodes.isNotEmpty()) {
+            if (selectedNodeIndex !in nodes.indices) {
+                selectedNodeIndex = 0
+            }
+            if (!isConnected && !isConnecting && !isStopping) {
+                statusMessage = "Готов к подключению"
+            }
+        } else {
+            if (isLoggedIn) {
+                statusMessage = "Загрузка подписки..."
+            } else {
+                statusMessage = "Выполните вход для подключения"
+            }
         }
     }
 

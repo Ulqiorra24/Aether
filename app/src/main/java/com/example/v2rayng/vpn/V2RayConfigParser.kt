@@ -143,7 +143,8 @@ object V2RayConfigParser {
                     .put("outboundTag", "direct")
                     .put("ip", JSONArray(listOf(
                         "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
-                        "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10"
+                        "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10",
+                        "geoip:private"
                     )))
                     .put("domain", JSONArray(listOf(
                         "regexp:^.*\\.local$", "regexp:^.*\\.lan$", "domain:local"
@@ -156,24 +157,43 @@ object V2RayConfigParser {
                     .put("type", "field")
                     .put("outboundTag", "direct")
                     .put("domain", JSONArray(listOf(
+                        "geosite:ru",
+                        "geosite:category-ru",
                         "domain:ru",
                         "domain:xn--p1ai",
                         "domain:su",
                         "domain:by",
+                        "domain:kz",
+                        "domain:wb.ru",
+                        "domain:wbbasket.ru",
+                        "domain:wbstatic.net",
+                        "domain:wildberries.ru",
+                        "domain:wildberries.com",
+                        "domain:wildberries.by",
+                        "domain:wildberries.kz",
+                        "domain:ozon.ru",
+                        "domain:ozonusercontent.com",
+                        "domain:ozone.ru",
+                        "domain:ozon-st.ru",
+                        "domain:ozon.by",
+                        "domain:ozon.kz",
+                        "domain:ozon.com",
+                        "domain:ozonru.me",
+                        "domain:pvz-ozon.ru",
                         "domain:vk.com",
                         "domain:vk.me",
                         "domain:vk.ru",
                         "domain:yandex.ru",
                         "domain:yandex.com",
                         "domain:yandex.net",
+                        "domain:yastatic.net",
                         "domain:ya.ru",
                         "domain:dzen.ru",
                         "domain:mail.ru",
                         "domain:ok.ru",
                         "domain:rambler.ru",
-                        "domain:ozon.ru",
-                        "domain:wildberries.ru",
                         "domain:avito.ru",
+                        "domain:avito.st",
                         "domain:sberbank.ru",
                         "domain:sber.ru",
                         "domain:tbank.ru",
@@ -188,21 +208,59 @@ object V2RayConfigParser {
                         "domain:rutube.ru",
                         "domain:kinopoisk.ru",
                         "domain:hh.ru",
-                        "domain:2gis.ru"
+                        "domain:2gis.ru",
+                        "domain:2gis.com",
+                        "domain:nspk.ru",
+                        "domain:sbp.ru",
+                        "domain:cbr.ru",
+                        "domain:mir-pay.ru",
+                        "domain:dns-shop.ru",
+                        "domain:mvideo.ru",
+                        "domain:eldorado.ru",
+                        "domain:megamarket.ru",
+                        "domain:samokat.ru"
                     )))
             )
+            rules.put(
+                JSONObject()
+                    .put("type", "field")
+                    .put("outboundTag", "direct")
+                    .put("ip", JSONArray(listOf("geoip:ru")))
+            )
         }
+
+        val sniffing = JSONObject()
+            .put("enabled", true)
+            .put("destOverride", JSONArray(listOf("http", "tls", "quic")))
+            .put("routeOnly", false)
+
+        val tunInbound = JSONObject()
+            .put("tag", "tun-in")
+            .put("protocol", "tun")
+            .put("settings", JSONObject().put("name", "aether-tun").put("MTU", 1500))
+            .put("sniffing", sniffing)
+
+        val socksInbound = JSONObject()
+            .put("tag", "socks-in")
+            .put("listen", "127.0.0.1")
+            .put("port", SOCKS_PORT)
+            .put("protocol", "socks")
+            .put("settings", JSONObject().put("auth", "noauth").put("udp", true))
+            .put("sniffing", sniffing)
+
         return JSONObject()
-            .put("log", JSONObject().put("loglevel", "info"))
-            .put("inbounds", JSONArray()
-                .put(JSONObject().put("tag", "tun-in").put("protocol", "tun")
-                    .put("settings", JSONObject().put("name", "aether-tun").put("MTU", 1500)))
-                .put(JSONObject().put("tag", "socks-in").put("listen", "127.0.0.1")
-                    .put("port", SOCKS_PORT).put("protocol", "socks")
-                    .put("settings", JSONObject().put("auth", "noauth").put("udp", true))))
+            .put("log", JSONObject()
+                .put("loglevel", "warning")
+                .put("access", "")
+                .put("error", "")
+            )
+            .put("inbounds", JSONArray().put(tunInbound).put(socksInbound))
             .put("outbounds", JSONArray().put(proxy)
                 .put(JSONObject().put("tag", "direct").put("protocol", "freedom")))
-            .put("routing", JSONObject().put("domainStrategy", "AsIs").put("rules", rules))
+            .put("routing", JSONObject()
+                .put("domainStrategy", "IPIfNonMatch")
+                .put("rules", rules)
+            )
             .toString()
     }
 

@@ -19,6 +19,7 @@ import kotlinx.coroutines.sync.withLock
 import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
+import java.io.File
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.Socket
@@ -104,6 +105,7 @@ class V2RayVpnService : VpnService() {
                         val node = V2RayConfigParser.parse(uri)
                         addLog("INFO", "Узел: ${node.name}")
                         val config = V2RayConfigParser.createConfig(node, bypassLan, bypassRu)
+                        extractAssets(applicationContext)
                         Seq.setContext(applicationContext)
                         Libv2ray.initCoreEnv(filesDir.absolutePath, "")
                         core = Libv2ray.newCoreController(object : CoreCallbackHandler {
@@ -111,17 +113,22 @@ class V2RayVpnService : VpnService() {
                             override fun shutdown(): Long = 0
                             override fun onEmitStatus(code: Long, message: String?): Long {
                                 message?.let { raw ->
-                                    if (raw.isNotBlank()) {
+                                    val trimmed = raw.trim()
+                                    if (trimmed.isNotBlank()) {
                                         val tag = when {
-                                            raw.contains("udp:", ignoreCase = true) -> "UDP"
-                                            raw.contains("tcp:", ignoreCase = true) -> "TCP"
-                                            raw.contains("direct", ignoreCase = true) || raw.contains("freedom", ignoreCase = true) -> "DIRECT"
-                                            raw.contains("proxy", ignoreCase = true) || raw.contains("vless", ignoreCase = true) -> "PROXY"
-                                            raw.contains("[Warning]", ignoreCase = true) -> "WARN"
-                                            raw.contains("[Error]", ignoreCase = true) -> "ERROR"
+                                            trimmed.contains("[direct]", ignoreCase = true) ||
+                                            trimmed.contains("-> direct", ignoreCase = true) ||
+                                            trimmed.contains("freedom", ignoreCase = true) -> "DIRECT"
+                                            trimmed.contains("[proxy]", ignoreCase = true) ||
+                                            trimmed.contains("-> proxy", ignoreCase = true) ||
+                                            trimmed.contains("vless", ignoreCase = true) -> "PROXY"
+                                            trimmed.contains("[Warning]", ignoreCase = true) -> "WARN"
+                                            trimmed.contains("[Error]", ignoreCase = true) -> "ERROR"
+                                            trimmed.contains("udp:", ignoreCase = true) -> "UDP"
+                                            trimmed.contains("tcp:", ignoreCase = true) -> "TCP"
                                             else -> "INFO"
                                         }
-                                        addLog(tag, raw.trim())
+                                        addLog(tag, trimmed)
                                     }
                                 }
                                 return 0
@@ -195,6 +202,29 @@ class V2RayVpnService : VpnService() {
         } finally {
             socket.close()
             probeSocket = null
+        }
+    }
+
+    private fun extractAssets(context: android.content.Context) {
+        val dir = context.filesDir
+        for (name in listOf("geoip.dat", "geosite.dat")) {
+            val target = File(dir, name)
+            try {
+                val assetFd = try { context.assets.openFd(name) } catch (_: Exception) { null }
+                val assetLen = assetFd?.length ?: -1L
+                assetFd?.close()
+                if (!target.exists() || (assetLen > 0 && target.length() != assetLen)) {
+                    context.assets.open(name).use { input ->
+                        val tmp = File(dir, "$name.tmp")
+                        tmp.outputStream().use { out -> input.copyTo(out) }
+                        if (tmp.renameTo(target)) {
+                            addLog("INFO", "База $name готова (${target.length() / 1024} КБ)")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                addLog("WARN", "Asset $name: ${e.message}")
+            }
         }
     }
 
