@@ -646,7 +646,10 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
             onDismissRequest = { showEditProfileDialog = false },
             title = { Text("Редактирование профиля") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     OutlinedTextField(
                         value = editPaymentEmail,
                         onValueChange = { editPaymentEmail = it },

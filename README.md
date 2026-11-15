@@ -1,14 +1,27 @@
 # Aether (Android x-ui VPN Client)
 
-[![Download APK](https://img.shields.io/badge/Download-APK_v0.8.2-2EA043?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Ulqiorra24/Aether/releases/latest)
+[![Download APK](https://img.shields.io/badge/Download-APK_v0.8.3-2EA043?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Ulqiorra24/Aether/releases/latest)
 [![Release](https://img.shields.io/github/v/release/Ulqiorra24/Aether?style=for-the-badge&label=Latest%20Release&color=0969DA)](https://github.com/Ulqiorra24/Aether/releases/latest)
 
-> 📦 **[Скачать Aether APK (v0.8.2)](https://github.com/Ulqiorra24/Aether/releases/latest)** — официальный готов к установке файл релиза для Android.
+> 📦 **[Скачать Aether APK (v0.8.3)](https://github.com/Ulqiorra24/Aether/releases/latest)** — официальный готов к установке файл релиза для Android.
 
 ---
 
 Android-клиент подписок x-ui / 3x-ui. VPN реализован через Xray-core
 (AndroidLibXrayLite) и встроенный TUN inbound.
+
+## Что нового в v0.8.3
+
+- 🔄 **Оптимизация формы регистрации**:
+  - Поля «Пароль» и «Повторите пароль» теперь идут строго последовательно друг за другом, а «Email для оплаты (необязательно)» расположен под ними.
+  - Добавлена кнопка показа/скрытия пароля (иконка глаза) для обоих полей пароля.
+- ⌨️ **Адаптация экранов авторизации под клавиатуру (IME)**:
+  - Добавлен `imePadding()` и поддержка плавной прокрутки (`verticalScroll`) на экранах «Вход», «Регистрация» и «Активация».
+  - Клавиатура больше не перекрывает нижние поля и кнопку; экран свободно скроллится свайпом до самого низа с комфортным отступом.
+  - Добавлен скроллинг в диалоге «Редактирование профиля» при открытой клавиатуре.
+- 🧹 **Очистка профиля от тестовых аккаунтов**:
+  - Полностью исключены и очищены остаточные данные тестового аккаунта (`qg9xa3obc1ban6o5` и `test`).
+  - Добавлена автоочистка устаревших ключей SharedPreferences при старте приложения и полная очистка профиля при выходе (`clearAuth()`).
 
 ## Что нового в v0.8.2
 

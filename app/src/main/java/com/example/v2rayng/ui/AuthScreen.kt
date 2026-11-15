@@ -50,6 +50,7 @@ fun AuthScreen(
     var passwordVisible by remember { mutableStateOf(false) }
 
     var localError by remember { mutableStateOf<String?>(null) }
+    val scrollState = rememberScrollState()
 
     val palette = MaterialTheme.colorScheme
     val dark = palette.background.luminance() < 0.5f
@@ -73,19 +74,22 @@ fun AuthScreen(
                         radius = size.width
                     )
                 )
-            },
+            }
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding(),
         contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 24.dp),
+                .verticalScroll(scrollState)
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.CenterVertically)
         ) {
+            Spacer(Modifier.height(12.dp))
+
             // Логотип и Название
             Surface(
                 shape = CircleShape,
@@ -117,7 +121,7 @@ fun AuthScreen(
                 color = palette.onSurfaceVariant
             )
 
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(24.dp))
 
             // Форма авторизации в карточке
             Card(
@@ -230,8 +234,34 @@ fun AuthScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    // Поля для Регистрации
+                    // Дополнительные поля для Регистрации (Пароль и Повторите пароль идут друг за другом, затем Email для оплаты)
                     if (selectedTab == 1) {
+                        OutlinedTextField(
+                            value = confirmPassword,
+                            onValueChange = {
+                                confirmPassword = it
+                                localError = null
+                            },
+                            label = { Text("Повторите пароль") },
+                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                            trailingIcon = {
+                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                    Icon(
+                                        imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = null
+                                    )
+                                }
+                            },
+                            singleLine = true,
+                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Password,
+                                imeAction = ImeAction.Next
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
                         OutlinedTextField(
                             value = paymentEmail,
                             onValueChange = {
@@ -243,24 +273,6 @@ fun AuthScreen(
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Email,
-                                imeAction = ImeAction.Next
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        OutlinedTextField(
-                            value = confirmPassword,
-                            onValueChange = {
-                                confirmPassword = it
-                                localError = null
-                            },
-                            label = { Text("Повторите пароль") },
-                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                            singleLine = true,
-                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Password,
                                 imeAction = ImeAction.Done
                             ),
                             shape = RoundedCornerShape(14.dp),
@@ -327,6 +339,8 @@ fun AuthScreen(
                     }
                 }
             }
+
+            Spacer(Modifier.height(32.dp))
         }
     }
 }

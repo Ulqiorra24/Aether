@@ -9,22 +9,51 @@ class VpnPrefs(context: Context) {
 
     val fixedHost: String = SecretObfuscator.getFixedHost()
 
+    private val ignoredAccounts = setOf("test", "qg9xa3obc1ban6o5")
+
+    init {
+        val savedUser = prefs.getString("current_username", "") ?: ""
+        val savedEmail = prefs.getString("user_email", "") ?: ""
+        val accsStr = prefs.getString("accounts_list", "") ?: ""
+        val cleanAccounts = accsStr.split(",")
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it !in ignoredAccounts }
+
+        val editor = prefs.edit()
+        var changed = false
+        if (savedUser in ignoredAccounts) {
+            editor.putString("current_username", cleanAccounts.firstOrNull() ?: "")
+            changed = true
+        }
+        if (savedEmail in ignoredAccounts) {
+            editor.remove("user_email")
+            changed = true
+        }
+        if (accsStr.split(",").any { it.trim() in ignoredAccounts }) {
+            editor.putString("accounts_list", cleanAccounts.joinToString(","))
+            changed = true
+        }
+        if (changed) {
+            editor.apply()
+        }
+    }
+
     var accounts: List<String>
         get() {
             val accsStr = prefs.getString("accounts_list", "") ?: ""
             return accsStr.split(",")
                 .map { it.trim() }
-                .filter { it.isNotBlank() && it != "test" }
+                .filter { it.isNotBlank() && it !in ignoredAccounts }
         }
         set(value) {
-            val cleanList = value.map { it.trim() }.filter { it.isNotBlank() && it != "test" }
+            val cleanList = value.map { it.trim() }.filter { it.isNotBlank() && it !in ignoredAccounts }
             prefs.edit().putString("accounts_list", cleanList.joinToString(",")).apply()
         }
 
     var currentUsername: String
         get() {
             val savedUser = prefs.getString("current_username", "") ?: ""
-            if (savedUser == "test" || (savedUser.isNotBlank() && savedUser !in accounts)) {
+            if (savedUser in ignoredAccounts || (savedUser.isNotBlank() && savedUser !in accounts)) {
                 return accounts.firstOrNull() ?: ""
             }
             return savedUser.ifBlank { accounts.firstOrNull() ?: "" }
@@ -32,12 +61,12 @@ class VpnPrefs(context: Context) {
         set(value) = prefs.edit().putString("current_username", value).apply()
 
     fun getSubscription(username: String): String {
-        if (username.isBlank() || username == "test") return ""
+        if (username.isBlank() || username in ignoredAccounts) return ""
         return prefs.getString("sub_$username", "") ?: ""
     }
 
     fun saveSubscription(username: String, content: String) {
-        if (username.isNotBlank() && username != "test") {
+        if (username.isNotBlank() && username !in ignoredAccounts) {
             prefs.edit().putString("sub_$username", content).apply()
         }
     }
@@ -63,7 +92,10 @@ class VpnPrefs(context: Context) {
         set(value) = prefs.edit().putString("auth_token", value).apply()
 
     var userEmail: String
-        get() = prefs.getString("user_email", "") ?: ""
+        get() {
+            val email = prefs.getString("user_email", "") ?: ""
+            return if (email in ignoredAccounts) "" else email
+        }
         set(value) = prefs.edit().putString("user_email", value).apply()
 
     var paymentEmail: String
@@ -71,9 +103,15 @@ class VpnPrefs(context: Context) {
         set(value) = prefs.edit().putString("payment_email", value).apply()
 
     val isLoggedIn: Boolean
-        get() = authToken.isNotBlank() || currentUsername.isNotBlank()
+        get() = (authToken.isNotBlank() || currentUsername.isNotBlank()) && currentUsername !in ignoredAccounts
 
     fun clearAuth() {
-        prefs.edit().remove("auth_token").remove("user_email").apply()
+        prefs.edit()
+            .remove("auth_token")
+            .remove("user_email")
+            .remove("payment_email")
+            .remove("current_username")
+            .remove("accounts_list")
+            .apply()
     }
 }
