@@ -318,7 +318,7 @@ object V2RayConfigParser {
         val tunInbound = JSONObject()
             .put("tag", "tun-in")
             .put("protocol", "tun")
-            .put("settings", JSONObject().put("name", "aether-tun").put("MTU", 1500))
+            .put("settings", JSONObject().put("name", "aether-tun").put("MTU", 9000)) // Use 9000 for better TCP throughput over Xray
             .put("sniffing", sniffing)
 
         val socksInbound = JSONObject()

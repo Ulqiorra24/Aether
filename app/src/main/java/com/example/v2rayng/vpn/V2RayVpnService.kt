@@ -176,7 +176,7 @@ class V2RayVpnService : VpnService() {
                         if (stopRequested) return@withLock
                         val builder = Builder()
                             .setSession("Aether")
-                            .setMtu(1500)
+                            .setMtu(9000)
                             .addAddress("10.0.0.2", 30)
                             .addAddress("fd00:1:fd00:1::2", 126)
                             .addRoute("0.0.0.0", 0)
