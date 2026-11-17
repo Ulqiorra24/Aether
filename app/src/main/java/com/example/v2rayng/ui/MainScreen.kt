@@ -1432,7 +1432,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     Spacer(Modifier.height(24.dp))
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Aether · $versionName.", style = MaterialTheme.typography.bodyMedium,
+                        Text("Aether · $versionName", style = MaterialTheme.typography.bodyMedium,
                             color = palette.onSurfaceVariant)
                         Text("Ядро Xray · $coreVersion", style = MaterialTheme.typography.bodySmall,
                             color = palette.onSurfaceVariant, textAlign = TextAlign.Center)
