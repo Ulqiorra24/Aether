@@ -51,11 +51,14 @@ object UpdateChecker {
 
                     if (isNewerVersion(cleanRemote, cleanCurrent)) {
                         // Файл на вашем сервере всегда называется aether.apk
-                        // благодаря CI/CD скрипту, поэтому старые версии не копятся.
-                        val customUrl = "https://app.mikaela-go.ru/aether.apk"
+                        // Добавляем параметр ?v=, чтобы Android DownloadManager или CDN не кешировал старый файл
+                        val customUrl = "https://app.mikaela-go.ru/aether.apk?v=${System.currentTimeMillis()}"
+                        
+                        // Также добавим параметр к GitHub URL на всякий случай
+                        val githubUrlBusted = if (downloadUrl.contains("?")) "$downloadUrl&v=${System.currentTimeMillis()}" else "$downloadUrl?v=${System.currentTimeMillis()}"
                         
                         // Определяем, откуда быстрее скачивать
-                        val fastestUrl = getFastestUrl(downloadUrl, customUrl)
+                        val fastestUrl = getFastestUrl(githubUrlBusted, customUrl)
 
                         return@withContext UpdateInfo(
                             tagName = tagName,
