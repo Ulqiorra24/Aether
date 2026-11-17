@@ -86,15 +86,15 @@ object UpdateChecker {
         if (customPing != -1L && (gitPing == -1L || customPing <= gitPing)) {
             return@coroutineScope customUrl
         }
-        // Если наш сервер не ответил (например, еще не загрузили туда файл)
-        // или GitHub вдруг оказался быстрее, используем GitHub
-        if (customPing == -1L && gitPing == -1L) {
-             return@coroutineScope githubUrl
-        }
-        if (customPing > gitPing) {
+        
+        // Если дошли сюда, значит GitHub ответил быстрее, либо сайт лежит/ответил ошибкой.
+        // Защита от возврата битой ссылки:
+        if (gitPing != -1L) {
             return@coroutineScope githubUrl
         }
         
+        // Фоллбэк, если всё же нужно вернуть customUrl 
+        // (хотя customPing тоже == -1L, но пользователь всё равно увидит ошибку в DownloadManager)
         return@coroutineScope customUrl
     }
 
