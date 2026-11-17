@@ -105,6 +105,22 @@ class VpnPrefs(context: Context) {
         get() = prefs.getBoolean("bypass_ru", true)
         set(value) = prefs.edit().putBoolean("bypass_ru", value).apply()
 
+    var showProtocols: Boolean
+        get() = prefs.getBoolean("show_protocols", false)
+        set(value) = prefs.edit().putBoolean("show_protocols", value).apply()
+
+    var isAutoSelect: Boolean
+        get() = prefs.getBoolean("is_auto_select", false)
+        set(value) = prefs.edit().putBoolean("is_auto_select", value).apply()
+
+    var perAppMode: String // "OFF", "ALLOW_SELECTED", "DISALLOW_SELECTED"
+        get() = prefs.getString("per_app_mode", "OFF") ?: "OFF"
+        set(value) = prefs.edit().putString("per_app_mode", value).apply()
+
+    var perAppPackages: Set<String>
+        get() = prefs.getStringSet("per_app_packages", emptySet()) ?: emptySet()
+        set(value) = prefs.edit().putStringSet("per_app_packages", value).apply()
+
     var authToken: String
         get() = prefs.getString("auth_token", "") ?: ""
         set(value) = prefs.edit().putString("auth_token", value).apply()

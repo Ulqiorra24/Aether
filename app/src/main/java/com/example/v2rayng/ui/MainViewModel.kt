@@ -13,6 +13,11 @@ import com.example.v2rayng.data.SubscriptionRepository
 import com.example.v2rayng.data.VpnPrefs
 import com.example.v2rayng.vpn.V2RayVpnService
 import com.example.v2rayng.vpn.VpnPhase
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import com.example.v2rayng.vpn.V2RayConfigParser
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +25,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -31,6 +37,22 @@ data class VpnNode(
     val name: String,
     val uri: String,
     var latencyMs: Long = -1L
+)
+
+data class ServerLocationGroup(
+    val locationName: String,
+    val nodes: List<VpnNode>,
+    val bestNodeIndex: Int,
+    val bestNode: VpnNode,
+    val bestLatencyMs: Long,
+    val isSelected: Boolean
+)
+
+data class AppInfo(
+    val packageName: String,
+    val appName: String,
+    val icon: android.graphics.drawable.Drawable? = null,
+    val isSystemApp: Boolean = false
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -92,6 +114,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var bypassRu by mutableStateOf(prefs.bypassRu)
         private set
 
+    var perAppMode by mutableStateOf(prefs.perAppMode)
+        private set
+
+    var perAppPackages by mutableStateOf(prefs.perAppPackages)
+        private set
+
+    var installedApps by mutableStateOf<List<AppInfo>>(emptyList())
+        private set
+
+    var appSearchQuery by mutableStateOf("")
+
+    var isAppsLoading by mutableStateOf(false)
+        private set
+
+    var showProtocols by mutableStateOf(prefs.showProtocols)
+        private set
+
+    var isAutoSelect by mutableStateOf(prefs.isAutoSelect)
+        private set
+
     var logs by mutableStateOf<List<com.example.v2rayng.vpn.VpnLogEntry>>(emptyList())
         private set
 
@@ -112,16 +154,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var isDownloadingUpdate by mutableStateOf(false)
         private set
 
+    var rxBytesPerSec by mutableStateOf(0L)
+        private set
+
+    var txBytesPerSec by mutableStateOf(0L)
+        private set
+
+    var downSpeedStr by mutableStateOf("0 Б/с")
+        private set
+
+    var upSpeedStr by mutableStateOf("0 Б/с")
+        private set
+
+    var connectionDurationStr by mutableStateOf("00:00:00")
+        private set
+
+    private var connectedAtTimestamp: Long = 0L
+
+    private var speedTickerJob: Job? = null
+
     init {
         viewModelScope.launch {
             V2RayVpnService.status.collect {
+                val wasConnected = isConnected
                 vpnStatus = it
                 statusMessage = it.message
+                if (it.phase == VpnPhase.CONNECTED && !wasConnected) {
+                    connectedAtTimestamp = System.currentTimeMillis()
+                } else if (it.phase != VpnPhase.CONNECTED) {
+                    connectedAtTimestamp = 0L
+                    connectionDurationStr = "00:00:00"
+                }
             }
         }
         viewModelScope.launch {
             V2RayVpnService.logs.collect {
                 logs = it
+            }
+        }
+        viewModelScope.launch {
+            V2RayVpnService.currentConnectedUri.collect { uri ->
+                if (uri != null) {
+                    val idx = nodes.indexOfFirst { it.uri == uri }
+                    if (idx != -1 && selectedNodeIndex != idx) {
+                        selectedNodeIndex = idx
+                    }
+                }
             }
         }
         if (isLoggedIn && username.isNotBlank()) {
@@ -130,13 +208,103 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 subscriptionContent = saved
                 parseNodes(saved)
             }
-            if (nodes.isEmpty()) {
-                fetchSubscriptionFor(username)
-            }
+            fetchSubscriptionFor(username)
         } else {
             statusMessage = "Выполните вход для подключения"
         }
         checkForUpdates(application)
+        startSpeedTicker()
+    }
+
+    private fun startSpeedTicker() {
+        speedTickerJob?.cancel()
+        speedTickerJob = viewModelScope.launch(Dispatchers.IO) {
+            var lastRx = android.net.TrafficStats.getTotalRxBytes()
+            var lastTx = android.net.TrafficStats.getTotalTxBytes()
+            var lastTime = System.currentTimeMillis()
+
+            while (isActive) {
+                delay(1000)
+                if (!isConnected) {
+                    connectedAtTimestamp = 0L
+                    val currRx = android.net.TrafficStats.getTotalRxBytes()
+                    val currTx = android.net.TrafficStats.getTotalTxBytes()
+                    lastRx = currRx
+                    lastTx = currTx
+                    lastTime = System.currentTimeMillis()
+                    withContext(Dispatchers.Main) {
+                        rxBytesPerSec = 0L
+                        txBytesPerSec = 0L
+                        downSpeedStr = "0 Б/с"
+                        upSpeedStr = "0 Б/с"
+                        connectionDurationStr = "00:00:00"
+                    }
+                    continue
+                }
+
+                val now = System.currentTimeMillis()
+                if (connectedAtTimestamp == 0L) {
+                    connectedAtTimestamp = now
+                }
+                val elapsedMs = (now - connectedAtTimestamp).coerceAtLeast(0L)
+                val totalSec = elapsedMs / 1000
+                val hours = totalSec / 3600
+                val minutes = (totalSec % 3600) / 60
+                val seconds = totalSec % 60
+                val formattedDuration = String.format(java.util.Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+
+                val currRx = android.net.TrafficStats.getTotalRxBytes()
+                val currTx = android.net.TrafficStats.getTotalTxBytes()
+                val currTime = System.currentTimeMillis()
+
+                val timeDiff = (currTime - lastTime) / 1000.0
+                if (timeDiff > 0 && lastRx >= 0 && lastTx >= 0 && currRx >= lastRx && currTx >= lastTx) {
+                    val rxSpeed = ((currRx - lastRx) / timeDiff).toLong()
+                    val txSpeed = ((currTx - lastTx) / timeDiff).toLong()
+                    withContext(Dispatchers.Main) {
+                        rxBytesPerSec = rxSpeed
+                        txBytesPerSec = txSpeed
+                        downSpeedStr = formatSpeed(rxSpeed)
+                        upSpeedStr = formatSpeed(txSpeed)
+                        connectionDurationStr = formattedDuration
+                    }
+                } else if (timeDiff > 0) {
+                    val uidRx = android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid())
+                    val uidTx = android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid())
+                    if (uidRx >= 0 && uidTx >= 0 && lastRx >= 0 && lastTx >= 0 && uidRx >= lastRx && uidTx >= lastTx) {
+                        val rxSpeed = ((uidRx - lastRx) / timeDiff).toLong()
+                        val txSpeed = ((uidTx - lastTx) / timeDiff).toLong()
+                        withContext(Dispatchers.Main) {
+                            rxBytesPerSec = rxSpeed
+                            txBytesPerSec = txSpeed
+                            downSpeedStr = formatSpeed(rxSpeed)
+                            upSpeedStr = formatSpeed(txSpeed)
+                            connectionDurationStr = formattedDuration
+                        }
+                    }
+                    lastRx = uidRx
+                    lastTx = uidTx
+                    lastTime = currTime
+                    continue
+                } else {
+                    withContext(Dispatchers.Main) {
+                        connectionDurationStr = formattedDuration
+                    }
+                }
+                lastRx = currRx
+                lastTx = currTx
+                lastTime = currTime
+            }
+        }
+    }
+
+    private fun formatSpeed(bytesPerSec: Long): String {
+        if (bytesPerSec <= 0) return "0 Б/с"
+        val k = 1024.0
+        val sizes = arrayOf("Б/с", "КБ/с", "МБ/с", "ГБ/с")
+        val i = (Math.log(bytesPerSec.toDouble()) / Math.log(k)).toInt().coerceIn(0, sizes.lastIndex)
+        val value = bytesPerSec / Math.pow(k, i.toDouble())
+        return if (i == 0) "${bytesPerSec} Б/с" else String.format(java.util.Locale.US, "%.1f %s", value, sizes[i])
     }
 
     fun checkForUpdates(context: android.content.Context) {
@@ -523,8 +691,99 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         statusMessage = "Выполните вход для подключения"
     }
 
+    fun updateShowProtocols(enabled: Boolean) {
+        showProtocols = enabled
+        prefs.showProtocols = enabled
+    }
+
+    fun selectAutoFastest(context: android.content.Context? = null) {
+        val bestIdx = getBestNodeIndex()
+        if (bestIdx in nodes.indices) {
+            val isDifferentNode = selectedNodeIndex != bestIdx
+            selectedNodeIndex = bestIdx
+            isAutoSelect = true
+            prefs.isAutoSelect = true
+            if ((isConnected || isConnecting || isStopping) && context != null && isDifferentNode) {
+                reconnectVpn(context)
+            }
+        }
+    }
+
+    fun getBestNodeIndex(): Int {
+        if (nodes.isEmpty()) return 0
+        val measured = nodes.mapIndexed { idx, node -> Pair(idx, node) }
+            .filter { it.second.latencyMs > 0 }
+        if (measured.isNotEmpty()) {
+            return measured.minByOrNull { it.second.latencyMs }?.first ?: 0
+        }
+        return 0
+    }
+
+    private val flagToCountryMap = mapOf(
+        "🇳🇱" to "🇳🇱 Нидерланды",
+        "🇫🇮" to "🇫🇮 Финляндия",
+        "🇺🇸" to "🇺🇸 США",
+        "🇩🇪" to "🇩🇪 Германия",
+        "🇷🇴" to "🇷🇴 Румыния",
+        "🇬🇧" to "🇬🇧 Великобритания",
+        "🇫🇷" to "🇫🇷 Франция",
+        "🇸🇬" to "🇸🇬 Сингапур",
+        "🇹🇷" to "🇹🇷 Турция",
+        "🇸🇪" to "🇸🇪 Швеция",
+        "🇵🇱" to "🇵🇱 Польша",
+        "🇨🇭" to "🇨🇭 Швейцария",
+        "🇯🇵" to "🇯🇵 Япония",
+        "🇰🇷" to "🇰🇷 Южная Корея",
+        "🇨🇦" to "🇨🇦 Канада",
+        "🇦🇺" to "🇦🇺 Австралия",
+        "🇦🇹" to "🇦🇹 Австрия",
+        "🇨🇿" to "🇨🇿 Чехия",
+        "🇪🇸" to "🇪🇸 Испания",
+        "🇮🇹" to "🇮🇹 Италия",
+        "🇮🇪" to "🇮🇪 Ирландия",
+        "🇧🇬" to "🇧🇬 Болгария"
+    )
+
+    fun cleanLocationName(rawName: String): String {
+        var s = rawName.trim()
+        s = s.replace(Regex("""(?i)\[(vless|vmess|trojan|ss|ssr|grpc|xhttp|hysteria|tuic|juicity|reality|tcp|ws|http)]"""), "")
+        s = s.replace(Regex("""(?i)\((vless|vmess|trojan|ss|ssr|grpc|xhttp|hysteria|tuic|juicity|reality|tcp|ws|http)\)"""), "")
+        s = s.replace(Regex("""(?i)\b(vless|vmess|trojan|grpc|xhttp|reality)\b"""), "")
+        s = s.replace(Regex("""\s*[-#]\s*\d+\s*$"""), "").trim()
+
+        flagToCountryMap[s]?.let { return it }
+
+        return s.ifBlank { rawName.trim() }
+    }
+
+    fun getLocationGroups(): List<ServerLocationGroup> {
+        if (nodes.isEmpty()) return emptyList()
+        val map = LinkedHashMap<String, MutableList<Pair<Int, VpnNode>>>()
+        nodes.forEachIndexed { index, node ->
+            val location = cleanLocationName(node.name)
+            map.getOrPut(location) { mutableListOf() }.add(Pair(index, node))
+        }
+        return map.map { (locName, nodePairs) ->
+            val sortedByLatency = nodePairs.sortedBy { (_, node) ->
+                if (node.latencyMs > 0) node.latencyMs else Long.MAX_VALUE
+            }
+            val (bestIndex, bestNode) = sortedByLatency.first()
+            val isGroupSelected = !isAutoSelect && nodePairs.any { (idx, _) -> idx == selectedNodeIndex }
+            ServerLocationGroup(
+                locationName = locName,
+                nodes = nodePairs.map { it.second },
+                bestNodeIndex = bestIndex,
+                bestNode = bestNode,
+                bestLatencyMs = bestNode.latencyMs,
+                isSelected = isGroupSelected
+            )
+        }
+    }
+
     fun selectNode(index: Int, context: android.content.Context? = null) {
         if (index !in nodes.indices) return
+        isAutoSelect = false
+        prefs.isAutoSelect = false
         val isDifferentNode = selectedNodeIndex != index
         selectedNodeIndex = index
         if ((isConnected || isConnecting || isStopping) && context != null && isDifferentNode) {
@@ -568,16 +827,67 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (targetUser != username || targetUser !in accounts) return@launch
             isLoading = false
             result.onSuccess { content ->
+                val prevDays = subscriptionDaysRemaining
                 val decoded = decodeSubscriptionContent(content)
                 subscriptionContent = decoded
                 prefs.saveSubscription(targetUser, decoded)
                 parseNodes(decoded)
+                checkSubscriptionExpiry(prevDays)
                 statusMessage = "Готов к подключению (${nodes.size} узлов)"
                 pingNodes()
             }.onFailure { error ->
                 statusMessage = "Ошибка подписки: ${error.localizedMessage ?: "Сбой"}"
             }
         }
+    }
+
+    private fun checkSubscriptionExpiry(prevDays: Int?) {
+        val days = subscriptionDaysRemaining
+        if (days != null && days != prevDays) {
+            if (days == 5 || days == 3 || days == 1) {
+                val context = getApplication<android.app.Application>().applicationContext
+                val prefs = context.getSharedPreferences("aether_prefs", Context.MODE_PRIVATE)
+                val lastNotifiedDays = prefs.getInt("last_notified_days_$username", -1)
+                
+                if (lastNotifiedDays != days) {
+                    sendExpiryNotification(context, days)
+                    prefs.edit().putInt("last_notified_days_$username", days).apply()
+                }
+            }
+        }
+    }
+
+    private fun sendExpiryNotification(context: Context, daysLeft: Int) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "subscription_alerts"
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId, 
+                "Оповещения о подписке", 
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Напоминания об окончании подписки Aether VPN"
+            }
+            manager.createNotificationChannel(channel)
+        }
+        
+        val title = "Aether VPN: Подписка истекает"
+        val message = when (daysLeft) {
+            1 -> "Остался всего 1 день! Продлите подписку, чтобы не потерять доступ к безопасному интернету."
+            else -> "Осталось $daysLeft дней. Не забудьте продлить подписку."
+        }
+
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(com.example.v2rayng.R.mipmap.aether)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+            
+        manager.notify(2000 + daysLeft, notification)
     }
 
     private fun parseNodes(content: String) {
@@ -590,17 +900,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val scheme = trimmed.substringBefore("://").lowercase()
                 validSchemes.contains(scheme)
             }
-            .mapIndexed { index, line ->
+            .mapNotNull { line ->
                 val uri = line.trim()
-                val name = if (uri.contains("#")) {
+                val parsed = try { V2RayConfigParser.parse(uri) } catch (_: Exception) { null }
+                val rawName = if (uri.contains("#")) {
                     try {
                         java.net.URLDecoder.decode(uri.substringAfter("#"), "UTF-8")
-                    } catch (e: Exception) {
-                        extractFallbackName(uri, index)
+                    } catch (_: Exception) {
+                        null
                     }
-                } else {
-                    extractFallbackName(uri, index)
-                }
+                } else null
+                val name = rawName?.ifBlank { null } ?: parsed?.name?.ifBlank { null } ?: extractFallbackName(uri, 0)
                 VpnNode(name, uri)
             }
         if (nodes.isNotEmpty()) {
@@ -641,22 +951,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             withContext(Dispatchers.Main) {
                 nodes = updatedNodes
+                if (isAutoSelect && nodes.isNotEmpty()) {
+                    val bestIdx = getBestNodeIndex()
+                    if (bestIdx in nodes.indices && bestIdx != selectedNodeIndex) {
+                        selectedNodeIndex = bestIdx
+                    }
+                }
             }
         }
     }
 
+    private fun isPrivateOrLocalHost(host: String): Boolean {
+        val h = host.lowercase().trim()
+        return h == "127.0.0.1" || h == "localhost" || h == "0.0.0.0" || h == "::1" ||
+               h.startsWith("10.") || h.startsWith("192.168.") ||
+               h.startsWith("172.16.") || h.startsWith("172.17.") || h.startsWith("172.18.") ||
+               h.startsWith("172.19.") || h.startsWith("172.20.") || h.startsWith("172.21.") ||
+               h.startsWith("172.22.") || h.startsWith("172.23.") || h.startsWith("172.24.") ||
+               h.startsWith("172.25.") || h.startsWith("172.26.") || h.startsWith("172.27.") ||
+               h.startsWith("172.28.") || h.startsWith("172.29.") || h.startsWith("172.30.") ||
+               h.startsWith("172.31.")
+    }
+
     private fun measureLatency(uriString: String): Long {
-        return try {
-            val mainPart = uriString.substringBefore("#")
-            val uri = URI(mainPart)
-            val host = uri.host ?: return -1L
-            val port = if (uri.port != -1) uri.port else 443
-            val startTime = System.currentTimeMillis()
-            Socket().use { socket ->
-                socket.connect(InetSocketAddress(host, port), 2000)
+        val (host, port) = try {
+            val parsed = V2RayConfigParser.parse(uriString)
+            val targetHost = if (isPrivateOrLocalHost(parsed.host) && parsed.serverName.isNotBlank()) {
+                parsed.serverName
+            } else {
+                parsed.host
             }
-            System.currentTimeMillis() - startTime
-        } catch (e: Exception) {
+            Pair(targetHost, parsed.port)
+        } catch (_: Exception) {
+            try {
+                val mainPart = uriString.substringBefore("#")
+                val uri = URI(mainPart)
+                val h = uri.host ?: return -1L
+                val p = if (uri.port != -1) uri.port else 443
+                Pair(h, p)
+            } catch (_: Exception) {
+                return -1L
+            }
+        }
+
+        if (isPrivateOrLocalHost(host)) return -1L
+
+        return try {
+            val startTime = System.nanoTime()
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(host, port), 2500)
+            }
+            val elapsedNs = System.nanoTime() - startTime
+            val elapsedMs = Math.round(elapsedNs / 1_000_000.0)
+            if (elapsedMs <= 0) 1L else elapsedMs
+        } catch (_: Exception) {
             -1L
         }
     }
@@ -688,6 +1036,81 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         startVpnServiceInternal(context)
     }
 
+    fun updatePerAppMode(mode: String, context: android.content.Context? = null) {
+        if (perAppMode == mode) return
+        perAppMode = mode
+        prefs.perAppMode = mode
+        if ((isConnected || isConnecting || isStopping) && context != null) {
+            reconnectVpn(context)
+        }
+    }
+
+    fun toggleAppPackage(pkgName: String, context: android.content.Context? = null) {
+        val updated = if (perAppPackages.contains(pkgName)) {
+            perAppPackages - pkgName
+        } else {
+            perAppPackages + pkgName
+        }
+        perAppPackages = updated
+        prefs.perAppPackages = updated
+        if ((isConnected || isConnecting || isStopping) && context != null) {
+            reconnectVpn(context)
+        }
+    }
+
+    fun selectAllApps(context: android.content.Context? = null) {
+        val allPkgs = installedApps.map { it.packageName }.toSet()
+        perAppPackages = allPkgs
+        prefs.perAppPackages = allPkgs
+        if ((isConnected || isConnecting || isStopping) && context != null) {
+            reconnectVpn(context)
+        }
+    }
+
+    fun clearSelectedApps(context: android.content.Context? = null) {
+        perAppPackages = emptySet()
+        prefs.perAppPackages = emptySet()
+        if ((isConnected || isConnecting || isStopping) && context != null) {
+            reconnectVpn(context)
+        }
+    }
+
+    fun loadInstalledApps(context: android.content.Context) {
+        if (installedApps.isNotEmpty() || isAppsLoading) return
+        isAppsLoading = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val pm = context.packageManager
+                val ownPkg = context.packageName
+                val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                    addCategory(Intent.CATEGORY_LAUNCHER)
+                }
+                val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
+                val apps = resolveInfos
+                    .mapNotNull { ri ->
+                        val pkg = ri.activityInfo.packageName
+                        if (pkg == ownPkg) return@mapNotNull null
+                        val appLabel = ri.loadLabel(pm).toString()
+                        val icon = try { ri.loadIcon(pm) } catch (_: Exception) { null }
+                        val appInfo = ri.activityInfo.applicationInfo
+                        val isSystem = (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+                        AppInfo(pkg, appLabel, icon, isSystem)
+                    }
+                    .distinctBy { it.packageName }
+                    .sortedBy { it.appName.lowercase() }
+
+                withContext(Dispatchers.Main) {
+                    installedApps = apps
+                    isAppsLoading = false
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) {
+                    isAppsLoading = false
+                }
+            }
+        }
+    }
+
     private fun startVpnServiceInternal(context: android.content.Context) {
         val selectedUri = nodes.getOrNull(selectedNodeIndex)?.uri
         if (selectedUri == null) {
@@ -707,8 +1130,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val intent = Intent(context, V2RayVpnService::class.java).apply {
             putExtra("NODE_URI", selectedUri)
+            putExtra("NODE_NAME", nodes.getOrNull(selectedNodeIndex)?.name)
+            putStringArrayListExtra("ALL_NODE_URIS", ArrayList(nodes.map { it.uri }))
+            putStringArrayListExtra("ALL_NODE_NAMES", ArrayList(nodes.map { it.name }))
             putExtra("BYPASS_LAN", bypassLan)
             putExtra("BYPASS_RU", bypassRu)
+            putExtra("PER_APP_MODE", perAppMode)
+            putStringArrayListExtra("PER_APP_PACKAGES", ArrayList(perAppPackages))
         }
         try {
             ContextCompat.startForegroundService(context, intent)

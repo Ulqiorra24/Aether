@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.core.app.NotificationCompat
 import com.example.v2rayng.MainActivity
+import com.example.v2rayng.data.VpnPrefs
 import go.Seq
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,6 +49,7 @@ class V2RayVpnService : VpnService() {
     private var stopping = false
     @Volatile private var stopRequested = false
     @Volatile private var probeSocket: Socket? = null
+    private var watchdogJob: Job? = null
 
     companion object {
         const val ACTION_STOP = "STOP"
@@ -57,6 +59,8 @@ class V2RayVpnService : VpnService() {
         private val mutableStatus = MutableStateFlow(VpnStatus())
         val status = mutableStatus.asStateFlow()
         val isConnected: Boolean get() = status.value.phase == VpnPhase.CONNECTED
+
+        val currentConnectedUri = MutableStateFlow<String?>(null)
 
         private val mutableLogs = MutableStateFlow<List<VpnLogEntry>>(emptyList())
         val logs = mutableLogs.asStateFlow()
@@ -120,10 +124,14 @@ class V2RayVpnService : VpnService() {
             return START_NOT_STICKY
         }
         val uri = intent.getStringExtra("NODE_URI").orEmpty()
+        val allNodeUris = intent.getStringArrayListExtra("ALL_NODE_URIS") ?: arrayListOf()
+        val allNodeNames = intent.getStringArrayListExtra("ALL_NODE_NAMES") ?: arrayListOf()
         val bypassLan = intent.getBooleanExtra("BYPASS_LAN", true)
         val bypassRu = intent.getBooleanExtra("BYPASS_RU", true)
+        val perAppMode = intent.getStringExtra("PER_APP_MODE")?.ifEmpty { null } ?: VpnPrefs(this).perAppMode
+        val perAppPackages = intent.getStringArrayListExtra("PER_APP_PACKAGES")?.toSet() ?: VpnPrefs(this).perAppPackages
 
-        addLog("INFO", "Запуск VPN (LAN bypass=$bypassLan, RU bypass=$bypassRu)")
+        addLog("INFO", "Запуск VPN (LAN bypass=$bypassLan, RU bypass=$bypassRu, PerApp mode=$perAppMode)")
 
         scope.launch {
             var errorMessage: String? = null
@@ -166,7 +174,7 @@ class V2RayVpnService : VpnService() {
                             }
                         })
                         if (stopRequested) return@withLock
-                        tunInterface = Builder()
+                        val builder = Builder()
                             .setSession("Aether")
                             .setMtu(1500)
                             .addAddress("10.0.0.2", 30)
@@ -177,7 +185,21 @@ class V2RayVpnService : VpnService() {
                             .addDnsServer("8.8.8.8")
                             // Core sockets and subscription requests must use the underlying network.
                             .addDisallowedApplication(packageName)
-                            .establish() ?: error("Не удалось создать VPN-интерфейс")
+
+                        when (perAppMode) {
+                            "ALLOW_SELECTED" -> {
+                                perAppPackages.filter { it != packageName }.forEach { pkg ->
+                                    try { builder.addAllowedApplication(pkg) } catch (_: Exception) {}
+                                }
+                            }
+                            "DISALLOW_SELECTED" -> {
+                                perAppPackages.filter { it != packageName }.forEach { pkg ->
+                                    try { builder.addDisallowedApplication(pkg) } catch (_: Exception) {}
+                                }
+                            }
+                        }
+
+                        tunInterface = builder.establish() ?: error("Не удалось создать VPN-интерфейс")
                         addLog("INFO", "Создан TUN интерфейс 10.0.0.2")
                         core!!.startLoop(config, tunInterface!!.fd)
                         check(core!!.isRunning) { "Ядро VPN не запустилось" }
@@ -210,39 +232,169 @@ class V2RayVpnService : VpnService() {
             if (errorMessage != null) {
                 addLog("ERROR", errorMessage!!)
                 mutableStatus.value = VpnStatus(VpnPhase.ERROR, errorMessage!!)
+                currentConnectedUri.value = null
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             } else {
                 addLog("INFO", "VPN успешно подключён!")
                 mutableStatus.value = VpnStatus(VpnPhase.CONNECTED, "VPN подключён. Соединение через сервер проверено.")
+                currentConnectedUri.value = uri
                 startForeground(NOTIFICATION_ID, notification("VPN подключён"))
+                startWatchdog(allNodeUris, allNodeNames, uri, bypassLan, bypassRu)
             }
         }
         return START_NOT_STICKY
     }
 
+    private fun startWatchdog(
+        allNodeUris: List<String>,
+        allNodeNames: List<String>,
+        initialUri: String,
+        bypassLan: Boolean,
+        bypassRu: Boolean
+    ) {
+        watchdogJob?.cancel()
+        if (allNodeUris.size <= 1) return
+        
+        watchdogJob = scope.launch(Dispatchers.IO) {
+            var currentUri = initialUri
+            var failCount = 0
+            while (isActive && !stopRequested) {
+                delay(15_000L)
+                if (stopRequested) break
+                
+                val isSuccess = pingCloudflare()
+                if (isSuccess) {
+                    failCount = 0
+                } else {
+                    failCount++
+                    addLog("WARN", "Ping failed: $failCount/3")
+                    if (failCount >= 3) {
+                        failCount = 0
+                        val currentIndex = allNodeUris.indexOf(currentUri)
+                        if (currentIndex != -1) {
+                            val nextIndex = (currentIndex + 1) % allNodeUris.size
+                            currentUri = allNodeUris[nextIndex]
+                            val nextName = allNodeNames.getOrNull(nextIndex) ?: "Backup"
+                            
+                            addLog("WARN", "Switching to backup server: $nextName")
+                            
+                            withContext(Dispatchers.Main) {
+                                try {
+                                    android.widget.Toast.makeText(
+                                        applicationContext,
+                                        "Сервер автоматически сменён на $nextName из-за помех на линии",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                } catch (_: Exception) {}
+                                mutableStatus.value = VpnStatus(VpnPhase.CONNECTED, "Смена сервера на $nextName…")
+                            }
+                            
+                            lifecycleMutex.withLock {
+                                if (stopRequested) return@withLock
+                                try {
+                                    val node = V2RayConfigParser.parse(currentUri)
+                                    val hasGeoAssets = File(filesDir, "geosite.dat").exists() && File(filesDir, "geosite.dat").length() > 0 &&
+                                                       File(filesDir, "geoip.dat").exists() && File(filesDir, "geoip.dat").length() > 0
+                                    val config = V2RayConfigParser.createConfig(node, bypassLan, bypassRu, hasGeoAssets = hasGeoAssets)
+                                    
+                                    core?.stopLoop()
+                                    core?.startLoop(config, tunInterface!!.fd)
+                                    addLog("INFO", "Переключено на: $nextName")
+                                    currentConnectedUri.value = currentUri
+                                    withContext(Dispatchers.Main) {
+                                        mutableStatus.value = VpnStatus(VpnPhase.CONNECTED, "VPN подключён к $nextName")
+                                        startForeground(NOTIFICATION_ID, notification("VPN подключён к $nextName"))
+                                    }
+                                } catch (e: Exception) {
+                                    addLog("ERROR", "Failed to switch server: ${e.message}")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun pingCloudflare(): Boolean {
+        try {
+            val socket = Socket(Proxy(Proxy.Type.SOCKS,
+                InetSocketAddress("127.0.0.1", V2RayConfigParser.SOCKS_PORT)))
+            socket.use { s ->
+                s.soTimeout = 5_000
+                s.connect(InetSocketAddress.createUnresolved("cp.cloudflare.com", 443), 5_000)
+                ((SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(s, "cp.cloudflare.com", 443, true) as SSLSocket).use { tls ->
+                    tls.soTimeout = 5_000
+                    tls.sslParameters = tls.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+                    tls.startHandshake()
+                    tls.outputStream.write(
+                        "GET /generate_204 HTTP/1.1\r\nHost: cp.cloudflare.com\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII)
+                    )
+                    tls.outputStream.flush()
+                    val response = tls.inputStream.bufferedReader().readLine().orEmpty()
+                    if (response.startsWith("HTTP/1.1 204") || response.startsWith("HTTP/1.0 204") ||
+                        response.startsWith("HTTP/1.1 200") || response.startsWith("HTTP/1.0 200")) {
+                        return true
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            return false
+        }
+        return false
+    }
+
     /** The probe explicitly uses Xray's SOCKS inbound because our own UID bypasses the VPN. */
     private fun verifyProxyConnection() {
-        val socket = Socket(Proxy(Proxy.Type.SOCKS,
-            InetSocketAddress("127.0.0.1", V2RayConfigParser.SOCKS_PORT)))
-        probeSocket = socket
-        try {
-            socket.soTimeout = 10_000
-            socket.connect(InetSocketAddress.createUnresolved("www.gstatic.com", 443), 10_000)
-            ((SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(socket, "www.gstatic.com", 443, true) as SSLSocket).use { tls ->
-                tls.soTimeout = 10_000
-                tls.sslParameters = tls.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
-                tls.startHandshake()
-                tls.outputStream.write(
-                    "GET /generate_204 HTTP/1.1\r\nHost: www.gstatic.com\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII)
-                )
-                tls.outputStream.flush()
-                val response = tls.inputStream.bufferedReader().readLine().orEmpty()
-                check(response.startsWith("HTTP/1.1 204") || response.startsWith("HTTP/1.0 204"))
+        var lastException: Exception? = null
+        for (attempt in 1..3) {
+            try {
+                Thread.sleep(250) // Small warm-up delay for Xray SOCKS inbound to bind
+                val socket = Socket(Proxy(Proxy.Type.SOCKS,
+                    InetSocketAddress("127.0.0.1", V2RayConfigParser.SOCKS_PORT)))
+                probeSocket = socket
+                try {
+                    socket.soTimeout = 8_000
+                    socket.connect(InetSocketAddress.createUnresolved("www.gstatic.com", 443), 8_000)
+                    ((SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(socket, "www.gstatic.com", 443, true) as SSLSocket).use { tls ->
+                        tls.soTimeout = 8_000
+                        tls.sslParameters = tls.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+                        tls.startHandshake()
+                        tls.outputStream.write(
+                            "GET /generate_204 HTTP/1.1\r\nHost: www.gstatic.com\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII)
+                        )
+                        tls.outputStream.flush()
+                        val response = tls.inputStream.bufferedReader().readLine().orEmpty()
+                        if (response.startsWith("HTTP/1.1 204") || response.startsWith("HTTP/1.0 204") ||
+                            response.startsWith("HTTP/1.1 200") || response.startsWith("HTTP/1.0 200")) {
+                            return
+                        }
+                    }
+                } finally {
+                    socket.close()
+                    probeSocket = null
+                }
+            } catch (e: Exception) {
+                lastException = e
             }
-        } finally {
-            socket.close()
-            probeSocket = null
+        }
+
+        // Fallback: If HTTP 204 probe failed due to gstatic block, test simple TCP connection to 1.1.1.1:53 via SOCKS
+        try {
+            val socket = Socket(Proxy(Proxy.Type.SOCKS,
+                InetSocketAddress("127.0.0.1", V2RayConfigParser.SOCKS_PORT)))
+            probeSocket = socket
+            try {
+                socket.soTimeout = 5_000
+                socket.connect(InetSocketAddress.createUnresolved("1.1.1.1", 53), 5_000)
+                return
+            } finally {
+                socket.close()
+                probeSocket = null
+            }
+        } catch (e: Exception) {
+            throw lastException ?: e
         }
     }
 
@@ -250,6 +402,8 @@ class V2RayVpnService : VpnService() {
         if (stopping) return
         stopping = true
         stopRequested = true
+        watchdogJob?.cancel()
+        currentConnectedUri.value = null
         addLog("INFO", "Остановка VPN...")
         mutableStatus.value = VpnStatus(VpnPhase.STOPPING, "Отключение…")
         runCatching { probeSocket?.close() }
@@ -272,7 +426,11 @@ class V2RayVpnService : VpnService() {
     private fun notification(message: String): Notification {
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(NotificationChannel(CHANNEL, "VPN", NotificationManager.IMPORTANCE_LOW))
+            val channel = NotificationChannel(CHANNEL, "VPN Status", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Состояние VPN подключения Aether"
+                setShowBadge(false)
+            }
+            manager.createNotificationChannel(channel)
         }
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -280,11 +438,13 @@ class V2RayVpnService : VpnService() {
             Intent(this, V2RayVpnService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setContentTitle("Aether")
+            .setSmallIcon(com.example.v2rayng.R.mipmap.aether)
+            .setContentTitle("Aether VPN")
             .setContentText(message)
             .setContentIntent(open)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .addAction(0, "Отключить", stop)
             .build()
     }
@@ -296,6 +456,7 @@ class V2RayVpnService : VpnService() {
     override fun onDestroy() {
         stopRequested = true
         runCatching { probeSocket?.close() }
+        currentConnectedUri.value = null
         if (mutableStatus.value.phase != VpnPhase.ERROR) {
             mutableStatus.value = VpnStatus(VpnPhase.DISCONNECTED, "VPN отключён")
         }
