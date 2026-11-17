@@ -34,14 +34,12 @@ object UpdateChecker {
 
                 val assets = json.optJSONArray("assets")
                 var downloadUrl = ""
-                var assetName = ""
                 if (assets != null) {
                     for (i in 0 until assets.length()) {
                         val asset = assets.getJSONObject(i)
                         val name = asset.optString("name", "")
                         if (name.endsWith(".apk")) {
                             downloadUrl = asset.optString("browser_download_url", "")
-                            assetName = name
                             break
                         }
                     }
@@ -52,8 +50,9 @@ object UpdateChecker {
                     val cleanCurrent = currentVersionName.removePrefix("v").trim()
 
                     if (isNewerVersion(cleanRemote, cleanCurrent)) {
-                        // Формируем прямую ссылку на наш сервер
-                        val customUrl = "https://app.mikaela-go.ru/$assetName"
+                        // Файл на вашем сервере всегда называется aether.apk
+                        // благодаря CI/CD скрипту, поэтому старые версии не копятся.
+                        val customUrl = "https://app.mikaela-go.ru/aether.apk"
                         
                         // Определяем, откуда быстрее скачивать
                         val fastestUrl = getFastestUrl(downloadUrl, customUrl)
