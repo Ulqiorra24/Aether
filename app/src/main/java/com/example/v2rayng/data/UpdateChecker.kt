@@ -1,6 +1,8 @@
 package com.example.v2rayng.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -32,12 +34,14 @@ object UpdateChecker {
 
                 val assets = json.optJSONArray("assets")
                 var downloadUrl = ""
+                var assetName = ""
                 if (assets != null) {
                     for (i in 0 until assets.length()) {
                         val asset = assets.getJSONObject(i)
                         val name = asset.optString("name", "")
                         if (name.endsWith(".apk")) {
                             downloadUrl = asset.optString("browser_download_url", "")
+                            assetName = name
                             break
                         }
                     }
@@ -48,9 +52,15 @@ object UpdateChecker {
                     val cleanCurrent = currentVersionName.removePrefix("v").trim()
 
                     if (isNewerVersion(cleanRemote, cleanCurrent)) {
+                        // Формируем прямую ссылку на наш сервер
+                        val customUrl = "https://app.mikaela-go.ru/$assetName"
+                        
+                        // Определяем, откуда быстрее скачивать
+                        val fastestUrl = getFastestUrl(downloadUrl, customUrl)
+
                         return@withContext UpdateInfo(
                             tagName = tagName,
-                            downloadUrl = downloadUrl,
+                            downloadUrl = fastestUrl,
                             releaseNotes = body
                         )
                     }
@@ -60,6 +70,52 @@ object UpdateChecker {
             e.printStackTrace()
         }
         return@withContext null
+    }
+
+    private suspend fun getFastestUrl(githubUrl: String, customUrl: String): String = coroutineScope {
+        // Запускаем 2 параллельных HEAD-запроса, чтобы измерить отклик
+        val gitDeferred = async(Dispatchers.IO) { measurePing(githubUrl) }
+        val customDeferred = async(Dispatchers.IO) { measurePing(customUrl) }
+
+        val gitPing = gitDeferred.await()
+        val customPing = customDeferred.await()
+
+        // Выбираем наш сервер, если он ответил успешно (код 200-399) 
+        // и его отклик быстрее, либо если GitHub вообще не ответил
+        if (customPing != -1L && (gitPing == -1L || customPing <= gitPing)) {
+            return@coroutineScope customUrl
+        }
+        // Если наш сервер не ответил (например, еще не загрузили туда файл)
+        // или GitHub вдруг оказался быстрее, используем GitHub
+        if (customPing == -1L && gitPing == -1L) {
+             return@coroutineScope githubUrl
+        }
+        if (customPing > gitPing) {
+            return@coroutineScope githubUrl
+        }
+        
+        return@coroutineScope customUrl
+    }
+
+    private fun measurePing(urlString: String): Long {
+        return try {
+            val startTime = System.currentTimeMillis()
+            val url = URL(urlString)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "HEAD"
+            connection.connectTimeout = 3000
+            connection.readTimeout = 3000
+            connection.instanceFollowRedirects = true // GitHub редиректит на aws/githubusercontent
+            connection.connect()
+            
+            if (connection.responseCode in 200..399) {
+                System.currentTimeMillis() - startTime
+            } else {
+                -1L
+            }
+        } catch (_: Exception) {
+            -1L
+        }
     }
 
     private fun isNewerVersion(remote: String, current: String): Boolean {
