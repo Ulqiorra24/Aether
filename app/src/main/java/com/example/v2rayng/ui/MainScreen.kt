@@ -1835,6 +1835,13 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
     if (showPaymentDialog) {
         val paymentSheetScroll = rememberScrollState()
         val isImeVisible = WindowInsets.isImeVisible
+        val activeLogin = viewModel.username.ifBlank { viewModel.userEmail }
+        val activePaymentEmail = viewModel.paymentEmail.ifBlank { activeLogin }
+
+        var targetAccountInput by rememberSaveable {
+            mutableStateOf(activePaymentEmail)
+        }
+
         LaunchedEffect(isImeVisible) {
             if (isImeVisible) {
                 paymentSheetScroll.animateScrollTo(paymentSheetScroll.maxValue)
@@ -1860,51 +1867,40 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     .padding(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                val activeLogin = viewModel.username.ifBlank { viewModel.userEmail }
-                val activePaymentEmail = viewModel.paymentEmail.ifBlank { activeLogin }
-
                 Text(
-                    "Продление подписки",
+                    "Продление подписки Aether",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
 
                 Text(
-                    "Выберите тариф для оплаты для $activeLogin",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                Text(
-                    "Ниже обязательно укажите email для оплаты и при оплате укажите его для моментального продления тарифа.",
+                    "Укажите ваш логин (name), ID подписки (sub_id) или email для проверки перед оплатой.",
                     style = MaterialTheme.typography.bodySmall,
                     color = palette.onSurfaceVariant
                 )
 
-                if (activePaymentEmail.isNotBlank()) {
-                    Surface(
-                        onClick = {
-                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Payment Email", activePaymentEmail))
-                            android.widget.Toast.makeText(context, "Email для оплаты скопирован", android.widget.Toast.LENGTH_SHORT).show()
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        color = palette.surfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text("Email для оплаты (нажмите для копирования):", style = MaterialTheme.typography.labelSmall, color = palette.onSurfaceVariant)
-                                Text(activePaymentEmail, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = palette.primary)
-                            }
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Скопировать", tint = palette.primary, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                }
+                OutlinedTextField(
+                    value = targetAccountInput,
+                    onValueChange = {
+                        targetAccountInput = it
+                        viewModel.resetPaymentError()
+                    },
+                    label = { Text("Логин (name), sub_id или Email") },
+                    placeholder = { Text("Например: name, sub_id или email") },
+                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Next
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text(
+                    "При нажатии кнопки «Перейти к оплате СБП» система проверит наличие вашей учётной записи в базе данных.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.onSurfaceVariant.copy(alpha = 0.8f)
+                )
 
                 val tariffs = listOf(
                     Triple(1, "1 месяц", "150 ₽"),
@@ -1973,13 +1969,23 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     Text(
                         text = err,
                         color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
 
                 Button(
                     onClick = {
-                        viewModel.openPaymentUrl(context, selectedPaymentMonths, promoCodeInput) {
+                        if (targetAccountInput.isBlank()) {
+                            viewModel.paymentError = "Укажите логин (name), sub_id или email"
+                            return@Button
+                        }
+                        viewModel.openPaymentUrl(
+                            context = context,
+                            months = selectedPaymentMonths,
+                            promo = promoCodeInput,
+                            targetUser = targetAccountInput
+                        ) {
                             showPaymentDialog = false
                         }
                     },
@@ -1994,7 +2000,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                             strokeWidth = 2.dp
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("Создание счета…", fontWeight = FontWeight.Bold)
+                        Text("Проверка аккаунта и создание счета…", fontWeight = FontWeight.Bold)
                     } else {
                         Text("Перейти к оплате СБП", fontWeight = FontWeight.Bold)
                     }

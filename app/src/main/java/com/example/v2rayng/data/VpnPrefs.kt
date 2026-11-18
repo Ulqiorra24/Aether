@@ -117,9 +117,34 @@ class VpnPrefs(context: Context) {
         get() = prefs.getString("per_app_mode", "OFF") ?: "OFF"
         set(value) = prefs.edit().putString("per_app_mode", value).apply()
 
-    var perAppPackages: Set<String>
-        get() = prefs.getStringSet("per_app_packages", emptySet()) ?: emptySet()
-        set(value) = prefs.edit().putStringSet("per_app_packages", value).apply()
+    var perAppAllowPackages: Set<String>
+        get() {
+            val set = prefs.getStringSet("per_app_allow_packages", null)
+            if (set != null) return set
+            if (prefs.getString("per_app_mode", "OFF") == "ALLOW_SELECTED") {
+                return prefs.getStringSet("per_app_packages", emptySet()) ?: emptySet()
+            }
+            return emptySet()
+        }
+        set(value) = prefs.edit().putStringSet("per_app_allow_packages", value).apply()
+
+    var perAppDisallowPackages: Set<String>
+        get() {
+            val set = prefs.getStringSet("per_app_disallow_packages", null)
+            if (set != null) return set
+            if (prefs.getString("per_app_mode", "OFF") == "DISALLOW_SELECTED") {
+                return prefs.getStringSet("per_app_packages", emptySet()) ?: emptySet()
+            }
+            return emptySet()
+        }
+        set(value) = prefs.edit().putStringSet("per_app_disallow_packages", value).apply()
+
+    val perAppPackages: Set<String>
+        get() = when (perAppMode) {
+            "ALLOW_SELECTED" -> perAppAllowPackages
+            "DISALLOW_SELECTED" -> perAppDisallowPackages
+            else -> emptySet()
+        }
 
     var authToken: String
         get() = prefs.getString("auth_token", "") ?: ""

@@ -117,8 +117,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var perAppMode by mutableStateOf(prefs.perAppMode)
         private set
 
-    var perAppPackages by mutableStateOf(prefs.perAppPackages)
+    var perAppAllowPackages by mutableStateOf(prefs.perAppAllowPackages)
         private set
+
+    var perAppDisallowPackages by mutableStateOf(prefs.perAppDisallowPackages)
+        private set
+
+    val perAppPackages: Set<String>
+        get() = when (perAppMode) {
+            "ALLOW_SELECTED" -> perAppAllowPackages
+            "DISALLOW_SELECTED" -> perAppDisallowPackages
+            else -> emptySet()
+        }
 
     var installedApps by mutableStateOf<List<AppInfo>>(emptyList())
         private set
@@ -332,11 +342,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         context: android.content.Context,
         months: Int,
         promo: String = "",
+        targetUser: String = "",
         onSuccess: () -> Unit = {}
     ) {
-        val user = username.ifBlank { userEmail.ifBlank { accounts.firstOrNull() ?: "" } }
+        val user = targetUser.trim().ifBlank {
+            paymentEmail.ifBlank { username.ifBlank { userEmail.ifBlank { accounts.firstOrNull() ?: "" } } }
+        }
         if (user.isBlank()) {
-            paymentError = "Сначала выполните вход"
+            paymentError = "Введите имя, sub_id или email для оплаты"
             return
         }
         if (isPaymentLoading) return
@@ -1046,13 +1059,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleAppPackage(pkgName: String, context: android.content.Context? = null) {
-        val updated = if (perAppPackages.contains(pkgName)) {
-            perAppPackages - pkgName
-        } else {
-            perAppPackages + pkgName
+        val currentSet = when (perAppMode) {
+            "ALLOW_SELECTED" -> perAppAllowPackages
+            "DISALLOW_SELECTED" -> perAppDisallowPackages
+            else -> return
         }
-        perAppPackages = updated
-        prefs.perAppPackages = updated
+        val updated = if (currentSet.contains(pkgName)) {
+            currentSet - pkgName
+        } else {
+            currentSet + pkgName
+        }
+        if (perAppMode == "ALLOW_SELECTED") {
+            perAppAllowPackages = updated
+            prefs.perAppAllowPackages = updated
+        } else if (perAppMode == "DISALLOW_SELECTED") {
+            perAppDisallowPackages = updated
+            prefs.perAppDisallowPackages = updated
+        }
         if ((isConnected || isConnecting || isStopping) && context != null) {
             reconnectVpn(context)
         }
@@ -1060,16 +1083,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectAllApps(context: android.content.Context? = null) {
         val allPkgs = installedApps.map { it.packageName }.toSet()
-        perAppPackages = allPkgs
-        prefs.perAppPackages = allPkgs
+        if (perAppMode == "ALLOW_SELECTED") {
+            perAppAllowPackages = allPkgs
+            prefs.perAppAllowPackages = allPkgs
+        } else if (perAppMode == "DISALLOW_SELECTED") {
+            perAppDisallowPackages = allPkgs
+            prefs.perAppDisallowPackages = allPkgs
+        }
         if ((isConnected || isConnecting || isStopping) && context != null) {
             reconnectVpn(context)
         }
     }
 
     fun clearSelectedApps(context: android.content.Context? = null) {
-        perAppPackages = emptySet()
-        prefs.perAppPackages = emptySet()
+        if (perAppMode == "ALLOW_SELECTED") {
+            perAppAllowPackages = emptySet()
+            prefs.perAppAllowPackages = emptySet()
+        } else if (perAppMode == "DISALLOW_SELECTED") {
+            perAppDisallowPackages = emptySet()
+            prefs.perAppDisallowPackages = emptySet()
+        }
         if ((isConnected || isConnecting || isStopping) && context != null) {
             reconnectVpn(context)
         }
