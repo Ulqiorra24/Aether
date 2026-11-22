@@ -105,6 +105,22 @@ class VpnPrefs(context: Context) {
         get() = prefs.getBoolean("bypass_ru", true)
         set(value) = prefs.edit().putBoolean("bypass_ru", value).apply()
 
+    var killSwitchEnabled: Boolean
+        get() = prefs.getBoolean("kill_switch_enabled", true)
+        set(value) = prefs.edit().putBoolean("kill_switch_enabled", value).apply()
+
+    var dnsProvider: String // "AdGuard", "Cloudflare", "Google", "Quad9", "System"
+        get() = prefs.getString("dns_provider", "AdGuard") ?: "AdGuard"
+        set(value) = prefs.edit().putString("dns_provider", value).apply()
+
+    fun getDnsServers(): List<String> = when (dnsProvider) {
+        "AdGuard" -> listOf("94.140.14.14", "94.140.15.15")
+        "Cloudflare" -> listOf("1.1.1.1", "1.0.0.1")
+        "Google" -> listOf("8.8.8.8", "8.8.4.4")
+        "Quad9" -> listOf("9.9.9.9", "149.112.112.112")
+        else -> listOf("1.1.1.1", "8.8.8.8")
+    }
+
     var showProtocols: Boolean
         get() = prefs.getBoolean("show_protocols", false)
         set(value) = prefs.edit().putBoolean("show_protocols", value).apply()

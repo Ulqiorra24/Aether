@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.launch
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
@@ -142,6 +143,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
     var promoCodeInput by rememberSaveable { mutableStateOf("") }
     var showThemeDialog by rememberSaveable { mutableStateOf(false) }
     var showRoutingDialog by rememberSaveable { mutableStateOf(false) }
+    var showSecurityDialog by rememberSaveable { mutableStateOf(false) }
     var showLogsDialog by rememberSaveable { mutableStateOf(false) }
     var showSplitTunnelingDialog by rememberSaveable { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
@@ -230,7 +232,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.size(6.dp).background(
-                        if (viewModel.isConnected) Color(0xFF4DEEEA) else palette.onSurfaceVariant, CircleShape))
+                        if (viewModel.isConnected) Color(0xFF10B981) else palette.onSurfaceVariant, CircleShape))
                     Text(
                         if (viewModel.isConnected) "Соединение защищено" else "Ваше личное пространство",
                         style = MaterialTheme.typography.labelMedium,
@@ -246,9 +248,62 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
             val rotation2 = remember { Animatable(360f) }
             val rotation3 = remember { Animatable(0f) }
             
+            // Green Splash Animation States on Connection Success
+            val greenSplash1Scale = remember { Animatable(0.8f) }
+            val greenSplash1Alpha = remember { Animatable(0f) }
+            val greenSplash2Scale = remember { Animatable(0.8f) }
+            val greenSplash2Alpha = remember { Animatable(0f) }
+            val greenPulseAlpha = remember { Animatable(0.3f) }
+
             // Define ring colors matching the concept
             val cyanColor = Color(0xFF4DEEEA)
             val purpleColor = Color(0xFFC084FC)
+            val greenSplashColor = Color(0xFF10B981)
+            val greenNeonColor = Color(0xFF00FF87)
+            
+            LaunchedEffect(viewModel.isConnected) {
+                if (viewModel.isConnected) {
+                    // Trigger double-wave green splash burst
+                    launch {
+                        greenSplash1Scale.snapTo(0.8f)
+                        greenSplash1Alpha.snapTo(0.9f)
+                        greenSplash1Scale.animateTo(
+                            targetValue = 2.5f,
+                            animationSpec = tween(800, easing = FastOutSlowInEasing)
+                        )
+                        greenSplash1Alpha.animateTo(
+                            targetValue = 0f,
+                            animationSpec = tween(500, easing = LinearEasing)
+                        )
+                    }
+                    launch {
+                        kotlinx.coroutines.delay(120)
+                        greenSplash2Scale.snapTo(0.8f)
+                        greenSplash2Alpha.snapTo(0.75f)
+                        greenSplash2Scale.animateTo(
+                            targetValue = 2.7f,
+                            animationSpec = tween(950, easing = FastOutSlowInEasing)
+                        )
+                        greenSplash2Alpha.animateTo(
+                            targetValue = 0f,
+                            animationSpec = tween(600, easing = LinearEasing)
+                        )
+                    }
+                    launch {
+                        greenPulseAlpha.animateTo(
+                            targetValue = 0.65f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1200, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse
+                            )
+                        )
+                    }
+                } else {
+                    greenSplash1Alpha.snapTo(0f)
+                    greenSplash2Alpha.snapTo(0f)
+                    greenPulseAlpha.snapTo(0.3f)
+                }
+            }
             
             LaunchedEffect(viewModel.isConnecting, viewModel.isConnected) {
                 val speedMultiplier = when {
@@ -290,22 +345,69 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                 modifier = Modifier.size(240.dp).padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Background Radial Glow
+                // Background Radial Glow (Turns green and pulses when connected)
                 Box(
                     modifier = Modifier
                         .size(240.dp)
                         .background(
                             brush = Brush.radialGradient(
                                 colors = listOf(
-                                    cyanColor.copy(alpha = 0.15f),
+                                    if (viewModel.isConnected) greenSplashColor.copy(alpha = greenPulseAlpha.value * 0.5f) else cyanColor.copy(alpha = 0.15f),
                                     Color.Transparent
                                 )
                             ),
                             shape = CircleShape
                         )
                 )
-                                // Outer Orbit 3
+
+                // Green Burst Waves (radiated on connection success)
+                if (greenSplash1Alpha.value > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .size(96.dp)
+                            .scale(greenSplash1Scale.value)
+                            .background(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        greenNeonColor.copy(alpha = greenSplash1Alpha.value * 0.7f),
+                                        greenSplashColor.copy(alpha = greenSplash1Alpha.value * 0.4f),
+                                        Color.Transparent
+                                    )
+                                ),
+                                shape = CircleShape
+                            )
+                            .border(
+                                width = 2.dp,
+                                color = greenNeonColor.copy(alpha = greenSplash1Alpha.value),
+                                shape = CircleShape
+                            )
+                    )
+                }
+                if (greenSplash2Alpha.value > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .size(96.dp)
+                            .scale(greenSplash2Scale.value)
+                            .background(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        greenSplashColor.copy(alpha = greenSplash2Alpha.value * 0.5f),
+                                        Color.Transparent
+                                    )
+                                ),
+                                shape = CircleShape
+                            )
+                            .border(
+                                width = 1.5.dp,
+                                color = greenSplashColor.copy(alpha = greenSplash2Alpha.value),
+                                shape = CircleShape
+                            )
+                    )
+                }
+
+                // Outer Orbit 3
                 val ring3Scale = if (viewModel.isConnecting) 0.95f else 1f
+                val ring3Color = if (viewModel.isConnected) greenSplashColor.copy(alpha = 0.4f) else purpleColor.copy(alpha = 0.2f)
                 Box(
                     modifier = Modifier
                         .size(200.dp) // Adjusted to fit screen
@@ -313,17 +415,18 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         .rotate(rotation3.value)
                         .border(
                             width = 1.dp,
-                            color = purpleColor.copy(alpha = 0.2f),
+                            color = ring3Color,
                             shape = CircleShape
                         )
                 ) {
+                    val orbitDotColor = if (viewModel.isConnected) greenNeonColor else purpleColor
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .offset(y = (-4).dp)
                             .size(8.dp)
-                            .background(purpleColor, CircleShape)
-                            .shadow(10.dp, CircleShape, ambientColor = purpleColor, spotColor = purpleColor)
+                            .background(orbitDotColor, CircleShape)
+                            .shadow(10.dp, CircleShape, ambientColor = orbitDotColor, spotColor = orbitDotColor)
                     )
                 }
                 
@@ -335,9 +438,15 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         .scale(ring2Scale)
                         .rotate(rotation2.value)
                 ) {
-                    val brush = Brush.linearGradient(
-                        colors = listOf(cyanColor.copy(alpha = 0.85f), Color(0xFFA855F7).copy(alpha = 0.1f), purpleColor.copy(alpha = 0.85f))
-                    )
+                    val brush = if (viewModel.isConnected) {
+                        Brush.linearGradient(
+                            colors = listOf(greenNeonColor.copy(alpha = 0.9f), Color(0xFF059669).copy(alpha = 0.2f), greenSplashColor.copy(alpha = 0.9f))
+                        )
+                    } else {
+                        Brush.linearGradient(
+                            colors = listOf(cyanColor.copy(alpha = 0.85f), Color(0xFFA855F7).copy(alpha = 0.1f), purpleColor.copy(alpha = 0.85f))
+                        )
+                    }
                     drawArc(
                         brush = brush,
                         startAngle = 0f,
@@ -355,8 +464,9 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         .scale(ring1Scale)
                         .rotate(rotation1.value)
                 ) {
+                    val ring1Color = if (viewModel.isConnected) greenNeonColor else cyanColor
                     val brush = Brush.linearGradient(
-                        colors = listOf(cyanColor, Color(0xFFA855F7).copy(alpha = 0f))
+                        colors = listOf(ring1Color, Color(0xFFA855F7).copy(alpha = 0f))
                     )
                     drawArc(
                         brush = brush,
@@ -366,7 +476,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         style = Stroke(width = 2.2f * density, cap = StrokeCap.Round)
                     )
                     drawCircle(
-                        color = cyanColor,
+                        color = ring1Color,
                         radius = 3f * density,
                         center = Offset(size.width / 2f, 0f)
                     )
@@ -384,17 +494,29 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     enabled = !viewModel.isStopping,
                     modifier = Modifier
                         .size(96.dp) // Adjusted to fit screen
-                        .shadow(30.dp, RoundedCornerShape(26.dp), ambientColor = Color.Black.copy(alpha = 0.5f)),
+                        .shadow(
+                            elevation = if (viewModel.isConnected) 36.dp else 30.dp,
+                            shape = RoundedCornerShape(26.dp),
+                            ambientColor = if (viewModel.isConnected) greenSplashColor else Color.Black.copy(alpha = 0.5f),
+                            spotColor = if (viewModel.isConnected) greenNeonColor else Color.Black.copy(alpha = 0.5f)
+                        ),
                     shape = RoundedCornerShape(26.dp),
                     color = Color.Transparent, // We use background for gradient
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
+                    border = BorderStroke(
+                        width = if (viewModel.isConnected) 1.5.dp else 1.dp,
+                        color = if (viewModel.isConnected) greenNeonColor.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.15f)
+                    )
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
                                 brush = Brush.verticalGradient(
-                                    colors = listOf(Color(0xFF2A1E47), Color(0xFF17112B))
+                                    colors = if (viewModel.isConnected) {
+                                        listOf(Color(0xFF0F382C), Color(0xFF09201A))
+                                    } else {
+                                        listOf(Color(0xFF2A1E47), Color(0xFF17112B))
+                                    }
                                 )
                             ),
                         contentAlignment = Alignment.Center
@@ -404,8 +526,11 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                             modifier = Modifier
                                 .fillMaxSize()
                                 .background(
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(cyanColor.copy(alpha = 0f), purpleColor.copy(alpha = 0f), cyanColor.copy(alpha = 0f)) // Invisible for now, but ready for pulses
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(
+                                            if (viewModel.isConnected) greenNeonColor.copy(alpha = 0.35f) else cyanColor.copy(alpha = 0f),
+                                            Color.Transparent
+                                        )
                                     )
                                 )
                         )
@@ -413,54 +538,85 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         if (viewModel.isConnecting || viewModel.isStopping) {
                             CircularProgressIndicator(Modifier.size(48.dp), strokeWidth = 2.dp, color = cyanColor)
                         } else {
-                            // Minimalist Logo from Concept
-                            Canvas(modifier = Modifier.size(48.dp).shadow(12.dp, ambientColor = cyanColor.copy(alpha = 0.25f), spotColor = cyanColor.copy(alpha = 0.25f))) {
-                                val w = size.width
-                                val h = size.height
-                                fun rx(x: Float) = (x / 100f) * w
-                                fun ry(y: Float) = (y / 100f) * h
-                                
-                                val logoGrad = Brush.linearGradient(
-                                    colors = listOf(Color(0xFF4DEEEA), Color(0xFF5EA8FA), Color(0xFFC084FC))
-                                )
-                                val stroke = Stroke(width = 5.5f * density, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                                
-                                // Shackle (animates up when disconnected)
-                                val shackleYOffset = if (viewModel.isConnected) 0f else -3.5f * density
-                                withTransform({ translate(top = shackleYOffset) }) {
-                                    val shacklePath = Path().apply {
-                                        moveTo(rx(36f), ry(33f))
-                                        lineTo(rx(36f), ry(24.5f))
-                                        cubicTo(rx(36f), ry(16.4919f), rx(42.4919f), ry(10f), rx(50.5f), ry(10f))
-                                        lineTo(rx(49.5f), ry(10f)) // Small trick for H50.5 H49.5
-                                        cubicTo(rx(57.5081f), ry(10f), rx(64f), ry(16.4919f), rx(64f), ry(24.5f))
-                                        lineTo(rx(64f), ry(33f))
+                            // Official Aether App Logo (1:1 with aether_logo.xml)
+                            val logoGlowColor = if (viewModel.isConnected) greenNeonColor else Color(0xFF53E5EF)
+                            Box(
+                                modifier = Modifier
+                                    .size(54.dp)
+                                    .background(
+                                        brush = Brush.radialGradient(
+                                            colors = listOf(
+                                                logoGlowColor.copy(alpha = 0.22f),
+                                                Color.Transparent
+                                            )
+                                        ),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Canvas(modifier = Modifier.fillMaxSize()) {
+                                    val w = size.width
+                                    val h = size.height
+                                    fun rx(x: Float) = (x / 108f) * w
+                                    fun ry(y: Float) = (y / 108f) * h
+                                    
+                                    val logoGrad = if (viewModel.isConnected) {
+                                        Brush.linearGradient(
+                                            colors = listOf(Color(0xFF00FF87), Color(0xFF10B981), Color(0xFF059669))
+                                        )
+                                    } else {
+                                        Brush.linearGradient(
+                                            colors = listOf(Color(0xFF53E5EF), Color(0xFF3B82F6), Color(0xFFA05CFA))
+                                        )
                                     }
-                                    drawPath(shacklePath, brush = logoGrad, style = stroke)
+                                    
+                                    // 1. Lock Top Shackle (U-shaped arch)
+                                    val shackleYOffset = if (viewModel.isConnected) 0f else -3.5f * density
+                                    withTransform({ translate(top = shackleYOffset) }) {
+                                        val shacklePath = Path().apply {
+                                            moveTo(rx(43f), ry(28f))
+                                            lineTo(rx(43f), ry(23f))
+                                            cubicTo(rx(43f), ry(8f), rx(65f), ry(8f), rx(65f), ry(23f))
+                                            lineTo(rx(65f), ry(28f))
+                                        }
+                                        drawPath(
+                                            shacklePath,
+                                            brush = logoGrad,
+                                            style = Stroke(width = 3.2f * density, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                        )
+                                    }
+                                    
+                                    // 2. Shield Body Contour (Upper shoulders slant down to sides)
+                                    val shieldPath = Path().apply {
+                                        moveTo(rx(54f), ry(23f))
+                                        lineTo(rx(78f), ry(33f))
+                                        lineTo(rx(76f), ry(58f))
+                                        cubicTo(rx(74f), ry(71f), rx(65f), ry(80f), rx(54f), ry(86f))
+                                        cubicTo(rx(43f), ry(80f), rx(34f), ry(71f), rx(32f), ry(58f))
+                                        lineTo(rx(30f), ry(33f))
+                                        close()
+                                    }
+                                    drawPath(
+                                        shieldPath,
+                                        brush = logoGrad,
+                                        style = Stroke(width = 3.5f * density, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                    )
+                                    
+                                    // 3. Letter A / Chevron Inside Shield
+                                    val letterAPath = Path().apply {
+                                        moveTo(rx(39f), ry(69f))
+                                        lineTo(rx(52f), ry(38f))
+                                        quadraticTo(rx(54f), ry(34f), rx(56f), ry(38f))
+                                        lineTo(rx(69f), ry(69f))
+                                        moveTo(rx(44.5f), ry(56f))
+                                        lineTo(rx(63.5f), ry(56f))
+                                    }
+                                    drawPath(
+                                        letterAPath,
+                                        brush = logoGrad,
+                                        style = Stroke(width = 4.2f * density, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                    )
                                 }
-                                
-                                // Shield
-                                val shieldPath = Path().apply {
-                                    moveTo(rx(50f), ry(26f))
-                                    lineTo(rx(76f), ry(36f))
-                                    lineTo(rx(76f), ry(54.5f))
-                                    cubicTo(rx(76f), ry(72f), rx(65f), ry(84.5f), rx(50f), ry(91f))
-                                    cubicTo(rx(35f), ry(84.5f), rx(24f), ry(72f), rx(24f), ry(54.5f))
-                                    lineTo(rx(24f), ry(36f))
-                                    close()
-                                }
-                                drawPath(shieldPath, color = Color(0xFF140F26))
-                                drawPath(shieldPath, brush = logoGrad, style = stroke)
-                                
-                                // Letter A
-                                val letterPath = Path().apply {
-                                    moveTo(rx(38f), ry(71f))
-                                    lineTo(rx(50f), ry(42.5f))
-                                    lineTo(rx(62f), ry(71f))
-                                    moveTo(rx(41.8f), ry(63f))
-                                    lineTo(rx(58.2f), ry(63f))
-                                }
-                                drawPath(letterPath, brush = logoGrad, style = stroke)
                             }
                         }
                     }
@@ -1302,6 +1458,31 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
 
                             HorizontalDivider(color = palette.outlineVariant.copy(alpha = 0.4f), modifier = Modifier.padding(horizontal = 14.dp))
 
+                            // Кнопка: Безопасность & Защита ТСПУ
+                            Surface(
+                                onClick = { showSecurityDialog = true },
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color.Transparent
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    Surface(shape = RoundedCornerShape(12.dp), color = palette.primaryContainer) {
+                                        Icon(Icons.Default.Lock, null, Modifier.padding(10.dp).size(22.dp), tint = palette.onPrimaryContainer)
+                                    }
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text("Безопасность и защита ТСПУ", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                        val ksText = if (viewModel.killSwitchEnabled) "Kill Switch: Вкл" else "Kill Switch: Выкл"
+                                        Text("$ksText • ${viewModel.dnsProvider}", style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
+                                    }
+                                    Icon(Icons.Default.ChevronRight, null, tint = palette.onSurfaceVariant)
+                                }
+                            }
+
+                            HorizontalDivider(color = palette.outlineVariant.copy(alpha = 0.4f), modifier = Modifier.padding(horizontal = 14.dp))
+
                             // Кнопка: Логи трафика
                             Surface(
                                 onClick = { showLogsDialog = true },
@@ -1599,12 +1780,84 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text("Исключить российские сайты и IP-адреса", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                        Text("Сайты .ru, гос ресурсы и IP-адреса РФ идут напрямую мимо VPN", style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
+                        Text("Банки (Сбер, ВТБ, Альфа), Яндекс, Озон, WB, 1С, Битрикс, Госуслуги, операторы связи и сайты .ru идут напрямую", style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
                     }
                     Switch(
                         checked = viewModel.bypassRu,
                         onCheckedChange = { viewModel.updateBypassRu(it, context) }
                     )
+                }
+            }
+        }
+    }
+
+    if (showSecurityDialog) {
+        ModalBottomSheet(onDismissRequest = { showSecurityDialog = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(shape = RoundedCornerShape(12.dp), color = palette.primaryContainer) {
+                        Icon(Icons.Default.Lock, null, Modifier.padding(8.dp).size(20.dp), tint = palette.onPrimaryContainer)
+                    }
+                    Text("Безопасность и защита ТСПУ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                }
+
+                // Kill Switch
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Kill Switch (Аварийный выключатель)", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                        Text("Автоматически блокирует интернет-трафик мимо туннеля при сбое VPN соединения", style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = viewModel.killSwitchEnabled,
+                        onCheckedChange = { viewModel.updateKillSwitch(it, context) }
+                    )
+                }
+
+                HorizontalDivider(color = palette.outlineVariant.copy(alpha = 0.4f))
+
+                // DNS Provider
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("DNS-сервер и защита от утечек", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                    Text("Все DNS запросы шифруются и идут внутри Xray для защиты от отлова ТСПУ", style = MaterialTheme.typography.bodySmall, color = palette.onSurfaceVariant)
+
+                    val dnsOptions = listOf(
+                        "AdGuard" to "AdGuard (Блокировка рекламы)",
+                        "Cloudflare" to "Cloudflare (1.1.1.1)",
+                        "Google" to "Google (8.8.8.8)",
+                        "Quad9" to "Quad9 (9.9.9.9)",
+                        "System" to "Системный DNS"
+                    )
+
+                    dnsOptions.forEach { (key, label) ->
+                        Surface(
+                            onClick = { viewModel.updateDnsProvider(key, context) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (viewModel.dnsProvider == key) palette.primaryContainer.copy(alpha = 0.5f) else Color.Transparent,
+                            border = BorderStroke(1.dp, if (viewModel.dnsProvider == key) palette.primary else palette.outlineVariant.copy(alpha = 0.3f))
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = if (viewModel.dnsProvider == key) FontWeight.Bold else FontWeight.Normal)
+                                RadioButton(
+                                    selected = viewModel.dnsProvider == key,
+                                    onClick = { viewModel.updateDnsProvider(key, context) }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -33,6 +33,9 @@ class AetherTileService : TileService() {
     private fun updateTileState(phase: VpnPhase) {
         val tile = qsTile ?: return
         val subText: String
+        try {
+            tile.icon = android.graphics.drawable.Icon.createWithResource(this, com.example.v2rayng.R.drawable.ic_qs_aether_logo)
+        } catch (_: Exception) {}
         when (phase) {
             VpnPhase.CONNECTED -> {
                 tile.state = Tile.STATE_ACTIVE

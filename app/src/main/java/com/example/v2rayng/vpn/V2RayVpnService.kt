@@ -174,6 +174,10 @@ class V2RayVpnService : VpnService() {
                             }
                         })
                         if (stopRequested) return@withLock
+                        val prefs = VpnPrefs(this@V2RayVpnService)
+                        val dnsServers = prefs.getDnsServers()
+                        val killSwitch = prefs.killSwitchEnabled
+
                         val builder = Builder()
                             .setSession("Aether")
                             .setMtu(9000)
@@ -181,10 +185,18 @@ class V2RayVpnService : VpnService() {
                             .addAddress("fd00:1:fd00:1::2", 126)
                             .addRoute("0.0.0.0", 0)
                             .addRoute("::", 0)
-                            .addDnsServer("1.1.1.1")
-                            .addDnsServer("8.8.8.8")
                             // Core sockets and subscription requests must use the underlying network.
                             .addDisallowedApplication(packageName)
+
+                        dnsServers.forEach { dns ->
+                            try { builder.addDnsServer(dns) } catch (_: Exception) {}
+                        }
+
+                        if (killSwitch && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            try { builder.setBlocking(true) } catch (_: Exception) {}
+                        }
+
+                        addLog("INFO", "DNS: ${prefs.dnsProvider} (${dnsServers.joinToString()}), KillSwitch: $killSwitch")
 
                         when (perAppMode) {
                             "ALLOW_SELECTED" -> {

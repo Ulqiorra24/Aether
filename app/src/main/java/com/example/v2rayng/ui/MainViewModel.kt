@@ -114,6 +114,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var bypassRu by mutableStateOf(prefs.bypassRu)
         private set
 
+    var killSwitchEnabled by mutableStateOf(prefs.killSwitchEnabled)
+        private set
+
+    var dnsProvider by mutableStateOf(prefs.dnsProvider)
+        private set
+
     var perAppMode by mutableStateOf(prefs.perAppMode)
         private set
 
@@ -565,6 +571,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (bypassRu == enabled) return
         bypassRu = enabled
         prefs.bypassRu = enabled
+        if ((isConnected || isConnecting || isStopping) && context != null) {
+            reconnectVpn(context)
+        }
+    }
+
+    fun updateKillSwitch(enabled: Boolean, context: android.content.Context? = null) {
+        if (killSwitchEnabled == enabled) return
+        killSwitchEnabled = enabled
+        prefs.killSwitchEnabled = enabled
+        if ((isConnected || isConnecting || isStopping) && context != null) {
+            reconnectVpn(context)
+        }
+    }
+
+    fun updateDnsProvider(provider: String, context: android.content.Context? = null) {
+        if (dnsProvider == provider) return
+        dnsProvider = provider
+        prefs.dnsProvider = provider
         if ((isConnected || isConnecting || isStopping) && context != null) {
             reconnectVpn(context)
         }
