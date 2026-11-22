@@ -166,6 +166,12 @@ object V2RayConfigParser {
                 "domain:su",
                 "domain:by",
                 "domain:kz",
+                // Application Update Servers (Direct Local Download outside VPN)
+                "domain:github.com",
+                "domain:githubusercontent.com",
+                "domain:objects.githubusercontent.com",
+                "domain:mikaela-go.ru",
+                "domain:app.mikaela-go.ru",
                 // Wildberries
                 "domain:wb.ru",
                 "domain:wbbasket.ru",

@@ -427,32 +427,75 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val file = java.io.File(appContext.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), "Aether-${updateInfo.tagName}.apk")
-                val manager = appContext.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-                val id = withContext(Dispatchers.IO) {
-                    if (file.exists()) check(file.delete()) { "Не удалось удалить предыдущий APK" }
-                    manager.enqueue(android.app.DownloadManager.Request(android.net.Uri.parse(updateInfo.downloadUrl))
-                        .setTitle("Aether ${updateInfo.tagName}")
-                        .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                        .setDestinationUri(android.net.Uri.fromFile(file))
-                        .setAllowedOverMetered(true))
-                }
-                while (true) {
-                    val progress = withContext(Dispatchers.IO) {
-                        manager.query(android.app.DownloadManager.Query().setFilterById(id)).use { cursor ->
-                            check(cursor.moveToFirst()) { "Загрузка не найдена" }
-                            Triple(
-                                cursor.getInt(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_STATUS)),
-                                cursor.getLong(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)),
-                                cursor.getLong(cursor.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                            )
+                
+                // Скачивание происходит напрямую процессами приложения мимо VPN (через локальную сеть)
+                withContext(Dispatchers.IO) {
+                    if (file.exists()) {
+                        file.delete()
+                    }
+                    
+                    var currentUrlStr = updateInfo.downloadUrl
+                    var connection: java.net.HttpURLConnection? = null
+                    var redirects = 0
+                    
+                    while (redirects < 6) {
+                        val url = java.net.URL(currentUrlStr)
+                        val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+                            connectTimeout = 15_000
+                            readTimeout = 30_000
+                            instanceFollowRedirects = true
+                            setRequestProperty("User-Agent", "Aether-Updater")
+                        }
+                        val responseCode = conn.responseCode
+                        if (responseCode in 300..399) {
+                            val location = conn.getHeaderField("Location")
+                            conn.disconnect()
+                            check(!location.isNullOrBlank()) { "Ошибка перенаправления скачивания" }
+                            currentUrlStr = location
+                            redirects++
+                        } else {
+                            check(responseCode == 200) { "Ошибка сервера скачивания: HTTP $responseCode" }
+                            connection = conn
+                            break
                         }
                     }
-                    updateDownloadedBytes = progress.second.coerceAtLeast(0)
-                    updateTotalBytes = progress.third.coerceAtLeast(0)
-                    check(progress.first != android.app.DownloadManager.STATUS_FAILED) { "Не удалось скачать APK. Попробуйте снова." }
-                    if (progress.first == android.app.DownloadManager.STATUS_SUCCESSFUL) break
-                    delay(500)
+                    
+                    checkNotNull(connection) { "Превышено количество перенаправлений" }
+                    
+                    val total = connection.contentLengthLong
+                    withContext(Dispatchers.Main) {
+                        updateTotalBytes = total.coerceAtLeast(0)
+                    }
+                    
+                    val input = connection.inputStream
+                    val output = file.outputStream()
+                    val buffer = ByteArray(64 * 1024)
+                    var bytesRead: Int
+                    var downloaded = 0L
+                    var lastUiUpdate = 0L
+                    
+                    try {
+                        input.use { inStream ->
+                            output.use { outStream ->
+                                while (inStream.read(buffer).also { bytesRead = it } != -1) {
+                                    outStream.write(buffer, 0, bytesRead)
+                                    downloaded += bytesRead
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastUiUpdate > 100 || downloaded == total) {
+                                        lastUiUpdate = now
+                                        val d = downloaded
+                                        withContext(Dispatchers.Main) {
+                                            updateDownloadedBytes = d
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } finally {
+                        connection.disconnect()
+                    }
                 }
+                
                 val uri = androidx.core.content.FileProvider.getUriForFile(appContext, "${appContext.packageName}.fileprovider", file)
                 appContext.startActivity(Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(uri, "application/vnd.android.package-archive")
