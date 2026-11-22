@@ -209,6 +209,26 @@ class V2RayVpnService : VpnService() {
                                     try { builder.addDisallowedApplication(pkg) } catch (_: Exception) {}
                                 }
                             }
+                            else -> {
+                                if (bypassRu) {
+                                    val ruAppPackages = setOf(
+                                        "com.bitrix24.android", "com.bitrix24.disk", "com.bitrix24.crm",
+                                        "ru.sberbankmobile", "ru.sberbank.sberbusiness", "com.sberbank.sberpay",
+                                        "ru.vtb24.mobilebanking.android", "ru.vtb.mobile.android", "com.vtbintegration.online",
+                                        "ru.alfabank.mobile.android", "ru.alfastrah.app",
+                                        "ru.tinkoff.tinkoffmobile", "com.tinkoff.mobile", "com.tbank.mobile",
+                                        "ru.gazprombank.android.mobilebank.app", "ru.sovcombank.marusya", "ru.openbank.mobile",
+                                        "ru.yandex.yandexbus", "ru.yandex.taxi", "ru.yandex.searchplugin", "ru.yandex.yandexnavi",
+                                        "ru.yandex.disk", "ru.yandex.music", "ru.yandex.weatherplugin", "ru.yandex.market",
+                                        "ru.gosuslugi.gost", "ru.gosuslugi.pos", "ru.nalog.NalogFL", "ru.rzd.pass",
+                                        "ru.wildberries.work", "com.wildberries.ru", "ru.ozon.app.android",
+                                        "ru.mts.mymts", "ru.tele2.mytele2", "ru.rt.life", "ru.megafon.ml", "ru.beeline.services"
+                                    )
+                                    ruAppPackages.forEach { pkg ->
+                                        try { builder.addDisallowedApplication(pkg) } catch (_: Exception) {}
+                                    }
+                                }
+                            }
                         }
 
                         tunInterface = builder.establish() ?: error("Не удалось создать VPN-интерфейс")
@@ -450,7 +470,7 @@ class V2RayVpnService : VpnService() {
             Intent(this, V2RayVpnService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(com.example.v2rayng.R.mipmap.aether)
+            .setSmallIcon(com.example.v2rayng.R.drawable.ic_qs_aether_logo)
             .setContentTitle("Aether VPN")
             .setContentText(message)
             .setContentIntent(open)
