@@ -1,21 +1,21 @@
 # Aether (Android x-ui VPN Client)
 
-[![Download APK](https://img.shields.io/badge/Download-APK_v0.8.9-2EA043?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Ulqiorra24/Aether/releases/latest)
+[![Download APK](https://img.shields.io/badge/Download-APK_v0.8.8-2EA043?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Ulqiorra24/Aether/releases/latest)
 [![Release](https://img.shields.io/github/v/release/Ulqiorra24/Aether?style=for-the-badge&label=Latest%20Release&color=0969DA)](https://github.com/Ulqiorra24/Aether/releases/latest)
 
-> 📦 **[Скачать Aether APK (v0.8.9)](https://github.com/Ulqiorra24/Aether/releases/latest)** — официальный готов к установке файл релиза для Android.
+> 📦 **[Скачать Aether APK (v0.8.8)](https://github.com/Ulqiorra24/Aether/releases/latest)** — официальный готов к установке файл релиза для Android.
 
 ---
 
 Android-клиент подписок x-ui / 3x-ui. VPN реализован через Xray-core (AndroidLibXrayLite) и встроенный TUN inbound.
 
-## Что нового в v0.8.9
+## Что нового в v0.8.8
 
-- 🔔 **Векторная иконка в статус-баре и шторке уведомлений**: Заменен кружок `●` на векторный логотип Aether в уведомлениях и статус-баре.
-- 🏢 **Полный обход обнаружения VPN в Битрикс24 и банковских ПО**: Приложения Битрикс24, Сбербанк, ВТБ, Альфа-Банк, Т-Банк и Яндекс изолированы от системного VPN-транспорта (`addDisallowedApplication`), плашка обнаружения VPN исчезла.
-- 🎨 **Иконка в Quick Settings Tile**: В шторку Android добавлена фирменная векторная иконка Aether.
-- ⚡ **Блокировка рекламы, AdGuard DNS & Kill Switch**: Автоматическая фильтрация рекламы, защита от ТСПУ и от утечек трафика при обрыве связи.
-- 🚀 **Прямая загрузка обновлений**: Скачивание новых APK происходит напрямую на максимальной скорости провайдера.
+- 🏢 **Полный обход обнаружения VPN в Битрикс24 и банках**: Пакеты Битрикс24 (`com.bitrix24.android`), Сбера, ВТБ, Альфы, Т-Банка и Яндекса изолированы от системного VPN-транспорта (`addDisallowedApplication`), плашка обнаружения VPN исчезла.
+- 🔔 **Векторная иконка в статус-баре и шторке**: Белый кружок `●` заменён на векторный логотип Aether в статусе VPN и шторке уведомлений.
+- 🎨 **Иконка в Quick Settings Tile**: В плитках быстрых настроек Android установлена нативная векторная иконка Aether.
+- ⚡ **Обход РФ, AdGuard DNS & Kill Switch**: Нативный доступ к сайтам РФ по умолчанию, автоматическая фильтрация рекламы, защита от ТСПУ и Kill Switch при сбое туннеля.
+- 🚀 **Прямое скачивание обновлений**: Загрузка новых версий APK происходит напрямую вне VPN на максимальной скорости вашего провайдера.
 
 ---
 
