@@ -2,6 +2,7 @@ package com.example.v2rayng.vpn
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.net.URI
 import java.net.URLDecoder
 import java.util.UUID
@@ -93,7 +94,8 @@ object V2RayConfigParser {
         node: ParsedNode,
         bypassLan: Boolean = true,
         bypassRu: Boolean = true,
-        hasGeoAssets: Boolean = true
+        hasGeoAssets: Boolean = true,
+        logDir: String? = null
     ): String {
         val reality = JSONObject()
             .put("serverName", node.serverName)
@@ -392,11 +394,14 @@ object V2RayConfigParser {
             .put("protocol", "socks")
             .put("settings", JSONObject().put("auth", "noauth").put("udp", true))
 
+        val accessLogPath = if (!logDir.isNullOrBlank()) File(logDir, "access.log").absolutePath else "none"
+        val errorLogPath = if (!logDir.isNullOrBlank()) File(logDir, "error.log").absolutePath else "none"
+
         return JSONObject()
             .put("log", JSONObject()
-                .put("loglevel", "warning")
-                .put("access", "")
-                .put("error", "")
+                .put("loglevel", "info")
+                .put("access", accessLogPath)
+                .put("error", errorLogPath)
             )
             .put("inbounds", JSONArray().put(tunInbound).put(socksInbound))
             .put("outbounds", JSONArray().put(proxy)

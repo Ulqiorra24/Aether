@@ -104,13 +104,19 @@ class AetherTileService : TileService() {
                 val subContent = prefs.getSubscription(username)
                 if (subContent.isNotBlank()) {
                     val validSchemes = setOf("vless", "vmess", "trojan", "ss", "ssr", "socks", "socks5", "hysteria", "hysteria2", "tuic", "juicity")
-                    val uri = subContent.lines()
+                    val allUris = subContent.lines()
                         .map { it.trim() }
-                        .firstOrNull { it.contains("://") && validSchemes.contains(it.substringBefore("://").lowercase()) }
+                        .filter { it.contains("://") && validSchemes.contains(it.substringBefore("://").lowercase()) }
+                    val uri = allUris.firstOrNull()
 
                     if (uri != null) {
+                        val nodeNames = allUris.map { u ->
+                            try { V2RayConfigParser.parse(u).name } catch (_: Exception) { "Proxy" }
+                        }
                         val intent = Intent(this, V2RayVpnService::class.java).apply {
                             putExtra("NODE_URI", uri)
+                            putStringArrayListExtra("ALL_NODE_URIS", ArrayList(allUris))
+                            putStringArrayListExtra("ALL_NODE_NAMES", ArrayList(nodeNames))
                             putExtra("BYPASS_LAN", prefs.bypassLan)
                             putExtra("BYPASS_RU", prefs.bypassRu)
                             putExtra("PER_APP_MODE", prefs.perAppMode)

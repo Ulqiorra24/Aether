@@ -5,6 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -13,6 +17,7 @@ import com.example.v2rayng.MainActivity
 import com.example.v2rayng.data.VpnPrefs
 import go.Seq
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -50,6 +55,52 @@ class V2RayVpnService : VpnService() {
     @Volatile private var stopRequested = false
     @Volatile private var probeSocket: Socket? = null
     private var watchdogJob: Job? = null
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    @Volatile private var isNetworkAvailable = true
+    private val watchdogSignal = Channel<Unit>(Channel.CONFLATED)
+
+    private fun registerNetworkCallback() {
+        if (networkCallback != null) return
+        try {
+            connectivityManager = getSystemService(ConnectivityManager::class.java)
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    isNetworkAvailable = true
+                    try { setUnderlyingNetworks(arrayOf(network)) } catch (_: Exception) {}
+                    addLog("INFO", "Сеть доступна, проверка VPN-соединения…")
+                    watchdogSignal.trySend(Unit)
+                }
+
+                override fun onLost(network: Network) {
+                    isNetworkAvailable = false
+                    addLog("WARN", "Сеть отключена")
+                }
+
+                override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                    val isValid = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    isNetworkAvailable = isValid
+                    if (isValid) {
+                        try { setUnderlyingNetworks(arrayOf(network)) } catch (_: Exception) {}
+                    }
+                }
+            }
+            networkCallback = callback
+            connectivityManager?.registerNetworkCallback(request, callback)
+        } catch (e: Exception) {
+            addLog("WARN", "Не удалось зарегистрировать NetworkCallback: ${e.message}")
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        try {
+            networkCallback?.let { connectivityManager?.unregisterNetworkCallback(it) }
+        } catch (_: Exception) {}
+        networkCallback = null
+    }
 
     companion object {
         const val ACTION_STOP = "STOP"
@@ -70,6 +121,68 @@ class V2RayVpnService : VpnService() {
             val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
             val entry = VpnLogEntry(++logCounter, timeStr, tag, message)
             mutableLogs.value = (listOf(entry) + mutableLogs.value).take(300)
+        }
+
+        fun parseCoreLogMessage(raw: String) {
+            val trimmed = raw.trim()
+            if (trimmed.isBlank()) return
+
+            if (trimmed.contains(" accepted ", ignoreCase = true)) {
+                val target = trimmed.substringAfter(" accepted ", "").trim()
+                val outboundTag = when {
+                    trimmed.contains("[direct]", ignoreCase = true) || trimmed.contains("-> direct", ignoreCase = true) -> "DIRECT"
+                    trimmed.contains("[proxy]", ignoreCase = true) || trimmed.contains("-> proxy", ignoreCase = true) || trimmed.contains("-> vless", ignoreCase = true) -> "PROXY"
+                    trimmed.contains("[block]", ignoreCase = true) || trimmed.contains("-> block", ignoreCase = true) -> "BLOCK"
+                    else -> "TRAFFIC"
+                }
+                val dest = target.substringBefore(" [").substringBefore(" ->").trim()
+                val formattedMsg = if (dest.isNotBlank()) "→ $outboundTag: $dest" else "→ $outboundTag: $target"
+                addLog(outboundTag, formattedMsg)
+                return
+            }
+
+            if (trimmed.contains("taking detour", ignoreCase = true)) {
+                val detourTag = when {
+                    trimmed.contains("[direct]", ignoreCase = true) -> "DIRECT"
+                    trimmed.contains("[proxy]", ignoreCase = true) -> "PROXY"
+                    trimmed.contains("[block]", ignoreCase = true) -> "BLOCK"
+                    else -> "ROUTE"
+                }
+                val target = trimmed.substringAfter("for [", "").substringBefore("]", "").ifBlank {
+                    trimmed.substringAfter("taking detour", "").trim()
+                }
+                val formattedMsg = if (target.isNotBlank()) "→ $detourTag: $target" else trimmed
+                addLog(detourTag, formattedMsg)
+                return
+            }
+
+            if (trimmed.contains("connection accepted", ignoreCase = true)) {
+                val target = trimmed.substringAfter("connection accepted from ", "").trim()
+                val formattedMsg = if (target.isNotBlank()) "Принято: $target" else trimmed
+                addLog("INBOUND", formattedMsg)
+                return
+            }
+
+            if (trimmed.contains("app/dns:", ignoreCase = true) || (trimmed.contains("domain ", ignoreCase = true) && trimmed.contains("->"))) {
+                val dnsInfo = trimmed.substringAfter("app/dns:", "").trim().ifBlank { trimmed }
+                addLog("DNS", "DNS: $dnsInfo")
+                return
+            }
+
+            val tag = when {
+                trimmed.contains("[direct]", ignoreCase = true) || trimmed.contains("freedom", ignoreCase = true) -> "DIRECT"
+                trimmed.contains("[proxy]", ignoreCase = true) || trimmed.contains("vless", ignoreCase = true) -> "PROXY"
+                trimmed.contains("[block]", ignoreCase = true) || trimmed.contains("blackhole", ignoreCase = true) -> "BLOCK"
+                trimmed.contains("[Warning]", ignoreCase = true) || trimmed.contains("WARN", ignoreCase = true) -> "WARN"
+                trimmed.contains("[Error]", ignoreCase = true) || trimmed.contains("ERROR", ignoreCase = true) -> "ERROR"
+                trimmed.contains("udp:", ignoreCase = true) -> "UDP"
+                trimmed.contains("tcp:", ignoreCase = true) -> "TCP"
+                else -> "INFO"
+            }
+
+            val cleanMsg = trimmed.replace(Regex("""^\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}\s*"""), "")
+                .replace(Regex("""^\[(Info|Warning|Error|Debug)\]\s*(\[\d+\]\s*)?"""), "").trim()
+            addLog(tag, cleanMsg.ifBlank { trimmed })
         }
 
         fun clearLogs() {
@@ -112,6 +225,7 @@ class V2RayVpnService : VpnService() {
             return START_NOT_STICKY
         }
         if (starting || stopping || isConnected) return START_NOT_STICKY
+        registerNetworkCallback()
         starting = true
         stopRequested = false
         mutableStatus.value = VpnStatus(VpnPhase.CONNECTING, "Подключение и проверка сервера…")
@@ -144,32 +258,15 @@ class V2RayVpnService : VpnService() {
                         extractAssets(applicationContext)
                         val hasGeoAssets = File(filesDir, "geosite.dat").exists() && File(filesDir, "geosite.dat").length() > 0 &&
                                            File(filesDir, "geoip.dat").exists() && File(filesDir, "geoip.dat").length() > 0
-                        val config = V2RayConfigParser.createConfig(node, bypassLan, bypassRu, hasGeoAssets = hasGeoAssets)
+                        val config = V2RayConfigParser.createConfig(node, bypassLan, bypassRu, hasGeoAssets = hasGeoAssets, logDir = filesDir.absolutePath)
+                        startLogTailing()
                         Seq.setContext(applicationContext)
                         Libv2ray.initCoreEnv(filesDir.absolutePath, "")
                         core = Libv2ray.newCoreController(object : CoreCallbackHandler {
                             override fun startup(): Long = 0
                             override fun shutdown(): Long = 0
                             override fun onEmitStatus(code: Long, message: String?): Long {
-                                message?.let { raw ->
-                                    val trimmed = raw.trim()
-                                    if (trimmed.isNotBlank()) {
-                                        val tag = when {
-                                            trimmed.contains("[direct]", ignoreCase = true) ||
-                                            trimmed.contains("-> direct", ignoreCase = true) ||
-                                            trimmed.contains("freedom", ignoreCase = true) -> "DIRECT"
-                                            trimmed.contains("[proxy]", ignoreCase = true) ||
-                                            trimmed.contains("-> proxy", ignoreCase = true) ||
-                                            trimmed.contains("vless", ignoreCase = true) -> "PROXY"
-                                            trimmed.contains("[Warning]", ignoreCase = true) -> "WARN"
-                                            trimmed.contains("[Error]", ignoreCase = true) -> "ERROR"
-                                            trimmed.contains("udp:", ignoreCase = true) -> "UDP"
-                                            trimmed.contains("tcp:", ignoreCase = true) -> "TCP"
-                                            else -> "INFO"
-                                        }
-                                        addLog(tag, trimmed)
-                                    }
-                                }
+                                message?.let { parseCoreLogMessage(it) }
                                 return 0
                             }
                         })
@@ -286,31 +383,49 @@ class V2RayVpnService : VpnService() {
         bypassRu: Boolean
     ) {
         watchdogJob?.cancel()
-        if (allNodeUris.size <= 1) return
-        
+        val candidateUris = if (allNodeUris.isNotEmpty()) allNodeUris else listOf(initialUri)
+        if (candidateUris.size <= 1) return
+
         watchdogJob = scope.launch(Dispatchers.IO) {
             var currentUri = initialUri
             var failCount = 0
             while (isActive && !stopRequested) {
-                delay(15_000L)
+                withTimeoutOrNull(10_000L) {
+                    watchdogSignal.receive()
+                }
                 if (stopRequested) break
-                
-                val isSuccess = pingCloudflare()
+
+                if (!isNetworkAvailable) {
+                    failCount = 0
+                    addLog("WARN", "Ожидание подключения к сети…")
+                    continue
+                }
+
+                val isSuccess = probeProxyHealth()
                 if (isSuccess) {
                     failCount = 0
                 } else {
-                    failCount++
-                    addLog("WARN", "Ping failed: $failCount/3")
-                    if (failCount >= 3) {
+                    if (!isDeviceConnectedToInternet()) {
                         failCount = 0
-                        val currentIndex = allNodeUris.indexOf(currentUri)
-                        if (currentIndex != -1) {
-                            val nextIndex = (currentIndex + 1) % allNodeUris.size
-                            currentUri = allNodeUris[nextIndex]
-                            val nextName = allNodeNames.getOrNull(nextIndex) ?: "Backup"
-                            
-                            addLog("WARN", "Switching to backup server: $nextName")
-                            
+                        addLog("WARN", "Устройство не подключено к интернету. Ожидание сети…")
+                        continue
+                    }
+
+                    failCount++
+                    addLog("WARN", "Проверка VPN не пройдена ($failCount/2)")
+                    if (failCount >= 2) {
+                        failCount = 0
+                        addLog("WARN", "Потеря связи с сервером. Поиск рабочего узла…")
+
+                        val bestWorkingUri = findBestWorkingNode(candidateUris, currentUri)
+                        if (bestWorkingUri != null) {
+                            currentUri = bestWorkingUri
+                            val nextIndex = candidateUris.indexOf(currentUri)
+                            val nextName = allNodeNames.getOrNull(nextIndex)
+                                ?: try { V2RayConfigParser.parse(currentUri).name } catch (_: Exception) { "Backup" }
+
+                            addLog("WARN", "Автовыбор переключает на сервер: $nextName")
+
                             withContext(Dispatchers.Main) {
                                 try {
                                     android.widget.Toast.makeText(
@@ -319,9 +434,9 @@ class V2RayVpnService : VpnService() {
                                         android.widget.Toast.LENGTH_LONG
                                     ).show()
                                 } catch (_: Exception) {}
-                                mutableStatus.value = VpnStatus(VpnPhase.CONNECTED, "Смена сервера на $nextName…")
+                                mutableStatus.value = VpnStatus(VpnPhase.CONNECTED, "Автовыбор: переключение на $nextName…")
                             }
-                            
+
                             lifecycleMutex.withLock {
                                 if (stopRequested) return@withLock
                                 try {
@@ -329,17 +444,17 @@ class V2RayVpnService : VpnService() {
                                     val hasGeoAssets = File(filesDir, "geosite.dat").exists() && File(filesDir, "geosite.dat").length() > 0 &&
                                                        File(filesDir, "geoip.dat").exists() && File(filesDir, "geoip.dat").length() > 0
                                     val config = V2RayConfigParser.createConfig(node, bypassLan, bypassRu, hasGeoAssets = hasGeoAssets)
-                                    
+
                                     core?.stopLoop()
                                     core?.startLoop(config, tunInterface!!.fd)
-                                    addLog("INFO", "Переключено на: $nextName")
+                                    addLog("INFO", "VPN автоматически переключён на: $nextName")
                                     currentConnectedUri.value = currentUri
                                     withContext(Dispatchers.Main) {
                                         mutableStatus.value = VpnStatus(VpnPhase.CONNECTED, "VPN подключён к $nextName")
                                         startForeground(NOTIFICATION_ID, notification("VPN подключён к $nextName"))
                                     }
                                 } catch (e: Exception) {
-                                    addLog("ERROR", "Failed to switch server: ${e.message}")
+                                    addLog("ERROR", "Ошибка смены сервера: ${e.message}")
                                 }
                             }
                         }
@@ -349,32 +464,106 @@ class V2RayVpnService : VpnService() {
         }
     }
 
-    private fun pingCloudflare(): Boolean {
-        try {
-            val socket = Socket(Proxy(Proxy.Type.SOCKS,
-                InetSocketAddress("127.0.0.1", V2RayConfigParser.SOCKS_PORT)))
-            socket.use { s ->
-                s.soTimeout = 5_000
-                s.connect(InetSocketAddress.createUnresolved("cp.cloudflare.com", 443), 5_000)
-                ((SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(s, "cp.cloudflare.com", 443, true) as SSLSocket).use { tls ->
-                    tls.soTimeout = 5_000
-                    tls.sslParameters = tls.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
-                    tls.startHandshake()
-                    tls.outputStream.write(
-                        "GET /generate_204 HTTP/1.1\r\nHost: cp.cloudflare.com\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII)
-                    )
-                    tls.outputStream.flush()
-                    val response = tls.inputStream.bufferedReader().readLine().orEmpty()
-                    if (response.startsWith("HTTP/1.1 204") || response.startsWith("HTTP/1.0 204") ||
-                        response.startsWith("HTTP/1.1 200") || response.startsWith("HTTP/1.0 200")) {
+    private fun probeProxyHealth(): Boolean {
+        val targets = listOf(
+            Pair("cp.cloudflare.com", 443),
+            Pair("www.gstatic.com", 443),
+            Pair("1.1.1.1", 53)
+        )
+        for ((host, port) in targets) {
+            try {
+                val socket = Socket(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", V2RayConfigParser.SOCKS_PORT)))
+                socket.use { s ->
+                    s.soTimeout = 3_500
+                    s.connect(InetSocketAddress.createUnresolved(host, port), 3_500)
+                    if (port == 443) {
+                        ((SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(s, host, port, true) as SSLSocket).use { tls ->
+                            tls.soTimeout = 3_500
+                            tls.sslParameters = tls.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+                            tls.startHandshake()
+                            tls.outputStream.write(
+                                "GET /generate_204 HTTP/1.1\r\nHost: $host\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII)
+                            )
+                            tls.outputStream.flush()
+                            val response = tls.inputStream.bufferedReader().readLine().orEmpty()
+                            if (response.contains("204") || response.contains("200")) {
+                                return true
+                            }
+                        }
+                    } else {
                         return true
                     }
                 }
-            }
-        } catch (_: Exception) {
-            return false
+            } catch (_: Exception) {}
         }
         return false
+    }
+
+    private fun isDeviceConnectedToInternet(): Boolean {
+        if (!isNetworkAvailable) return false
+        val cm = connectivityManager ?: getSystemService(ConnectivityManager::class.java)
+        val activeNet = cm?.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(activeNet) ?: return false
+        if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return false
+
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("1.1.1.1", 53), 2_000)
+                true
+            }
+        } catch (_: Exception) {
+            try {
+                Socket().use { socket ->
+                    socket.connect(InetSocketAddress("8.8.8.8", 53), 2_000)
+                    true
+                }
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+
+    private suspend fun findBestWorkingNode(
+        allNodeUris: List<String>,
+        currentUri: String
+    ): String? = withContext(Dispatchers.IO) {
+        if (allNodeUris.isEmpty()) return@withContext null
+
+        val candidates = allNodeUris.map { uri ->
+            async {
+                val latency = measureNodeHostLatency(uri)
+                Pair(uri, latency)
+            }
+        }.awaitAll()
+
+        val workingCandidates = candidates.filter { it.second > 0 }.sortedBy { it.second }
+        if (workingCandidates.isNotEmpty()) {
+            val best = workingCandidates.firstOrNull { it.first != currentUri } ?: workingCandidates.first()
+            best.first
+        } else {
+            val currIdx = allNodeUris.indexOf(currentUri)
+            val nextIdx = if (currIdx != -1) (currIdx + 1) % allNodeUris.size else 0
+            allNodeUris.getOrNull(nextIdx)
+        }
+    }
+
+    private fun measureNodeHostLatency(uriString: String): Long {
+        return try {
+            val parsed = V2RayConfigParser.parse(uriString)
+            val host = if (parsed.host == "127.0.0.1" || parsed.host == "localhost" || parsed.host.startsWith("10.")) {
+                parsed.serverName.ifBlank { parsed.host }
+            } else {
+                parsed.host
+            }
+            val startTime = System.nanoTime()
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(host, parsed.port), 2_000)
+            }
+            val elapsedMs = (System.nanoTime() - startTime) / 1_000_000L
+            if (elapsedMs <= 0) 1L else elapsedMs
+        } catch (_: Exception) {
+            -1L
+        }
     }
 
     /** The probe explicitly uses Xray's SOCKS inbound because our own UID bypasses the VPN. */
@@ -430,11 +619,66 @@ class V2RayVpnService : VpnService() {
         }
     }
 
+    private var logTailJob: Job? = null
+
+    private fun startLogTailing() {
+        logTailJob?.cancel()
+        logTailJob = scope.launch(Dispatchers.IO) {
+            val accessFile = File(filesDir, "access.log")
+            val errorFile = File(filesDir, "error.log")
+            try {
+                if (accessFile.exists()) accessFile.delete()
+                accessFile.createNewFile()
+                if (errorFile.exists()) errorFile.delete()
+                errorFile.createNewFile()
+            } catch (_: Exception) {}
+
+            var accessOffset = 0L
+            var errorOffset = 0L
+
+            while (isActive) {
+                try {
+                    if (accessFile.exists() && accessFile.length() > accessOffset) {
+                        java.io.RandomAccessFile(accessFile, "r").use { raf ->
+                            raf.seek(accessOffset)
+                            var line: String? = raf.readLine()
+                            while (line != null) {
+                                val utf8Line = String(line.toByteArray(Charsets.ISO_8859_1), Charsets.UTF_8)
+                                withContext(Dispatchers.Main) {
+                                    parseCoreLogMessage(utf8Line)
+                                }
+                                line = raf.readLine()
+                            }
+                            accessOffset = raf.filePointer
+                        }
+                    }
+
+                    if (errorFile.exists() && errorFile.length() > errorOffset) {
+                        java.io.RandomAccessFile(errorFile, "r").use { raf ->
+                            raf.seek(errorOffset)
+                            var line: String? = raf.readLine()
+                            while (line != null) {
+                                val utf8Line = String(line.toByteArray(Charsets.ISO_8859_1), Charsets.UTF_8)
+                                withContext(Dispatchers.Main) {
+                                    parseCoreLogMessage(utf8Line)
+                                }
+                                line = raf.readLine()
+                            }
+                            errorOffset = raf.filePointer
+                        }
+                    }
+                } catch (_: Exception) {}
+                delay(500)
+            }
+        }
+    }
+
     private fun requestStop(message: String = "VPN отключён") {
         if (stopping) return
         stopping = true
         stopRequested = true
         watchdogJob?.cancel()
+        logTailJob?.cancel()
         currentConnectedUri.value = null
         addLog("INFO", "Остановка VPN...")
         mutableStatus.value = VpnStatus(VpnPhase.STOPPING, "Отключение…")
@@ -487,6 +731,7 @@ class V2RayVpnService : VpnService() {
 
     override fun onDestroy() {
         stopRequested = true
+        unregisterNetworkCallback()
         runCatching { probeSocket?.close() }
         currentConnectedUri.value = null
         if (mutableStatus.value.phase != VpnPhase.ERROR) {

@@ -46,6 +46,11 @@ class SubscriptionRepository {
 
             val responseCode = connection.responseCode
             if (responseCode == HttpURLConnection.HTTP_OK) {
+                val userInfoHeader = connection.getHeaderField("Subscription-Userinfo")
+                    ?: connection.getHeaderField("subscription-userinfo")
+                val aetherUser = connection.getHeaderField("X-Aether-Username")?.trim().orEmpty()
+                val aetherEmail = connection.getHeaderField("X-Aether-Email")?.trim().orEmpty()
+
                 val responseBody = connection.inputStream.bufferedReader().use { it.readText() }
                 val decoded = try {
                     val bytes = Base64.decode(responseBody.trim(), Base64.DEFAULT)
@@ -53,7 +58,16 @@ class SubscriptionRepository {
                 } catch (e: Exception) {
                     responseBody
                 }
-                Result.success(decoded)
+
+                var resultText = decoded
+                if (!userInfoHeader.isNullOrBlank() && !resultText.contains("subscription-userinfo")) {
+                    resultText = "#subscription-userinfo: $userInfoHeader\n$resultText"
+                }
+                if (aetherUser.isNotBlank() || aetherEmail.isNotBlank()) {
+                    resultText = "#aether-meta: username=$aetherUser&email=$aetherEmail\n$resultText"
+                }
+
+                Result.success(resultText)
             } else {
                 Result.failure(Exception("HTTP error $responseCode: Subscription not found for '$username'"))
             }

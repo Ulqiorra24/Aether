@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.launch
@@ -82,13 +83,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
     val context = LocalContext.current
 
     if (!viewModel.isLoggedIn) {
-        AuthScreen(
-            isLoading = viewModel.isAuthLoading,
-            errorMessage = viewModel.authError,
-            onLogin = { email, pass -> viewModel.loginUser(email, pass) },
-            onRegister = { email, pass, payEmail -> viewModel.registerUser(email, pass, payEmail) },
-            onActivate = { email, subId, pass -> viewModel.activateUser(email, subId, pass) }
-        )
+        AuthScreen(viewModel = viewModel)
         return
     }
 
@@ -640,23 +635,24 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     color = palette.onSurfaceVariant, textAlign = TextAlign.Center)
 
                 val days = viewModel.subscriptionDaysRemaining
+                val isTrialClaimed = viewModel.isTrialClaimed
                 if (viewModel.username.isNotBlank()) {
-                    val isYellow = days != null && days in 3..5
-                    val isRed = days != null && days <= 2
+                    val isExpired = days == 0 || (days == null && !isTrialClaimed)
+                    val isWarning = days != null && days in 1..5
 
                     val chipBg = when {
-                        isRed -> Color(0xFFEF4444).copy(alpha = 0.12f)
-                        isYellow -> Color(0xFFF59E0B).copy(alpha = 0.12f)
+                        isExpired -> Color(0xFFEF4444).copy(alpha = 0.12f)
+                        isWarning -> Color(0xFFF59E0B).copy(alpha = 0.12f)
                         else -> palette.primaryContainer.copy(alpha = 0.6f)
                     }
                     val chipBorder = when {
-                        isRed -> Color(0xFFEF4444).copy(alpha = 0.4f)
-                        isYellow -> Color(0xFFF59E0B).copy(alpha = 0.4f)
+                        isExpired -> Color(0xFFEF4444).copy(alpha = 0.4f)
+                        isWarning -> Color(0xFFF59E0B).copy(alpha = 0.4f)
                         else -> palette.primary.copy(alpha = 0.3f)
                     }
                     val textColor = when {
-                        isRed -> Color(0xFFDC2626)
-                        isYellow -> Color(0xFFD97706)
+                        isExpired -> Color(0xFFDC2626)
+                        isWarning -> Color(0xFFD97706)
                         else -> palette.primary
                     }
 
@@ -666,7 +662,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         modifier = Modifier.padding(top = 8.dp)
                     ) {
                         Surface(
-                            onClick = { showPaymentDialog = true },
+                            onClick = { viewModel.onRenewClicked { showPaymentDialog = true } },
                             shape = RoundedCornerShape(20.dp),
                             color = chipBg,
                             border = BorderStroke(1.dp, chipBorder)
@@ -685,17 +681,18 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                                     text = when {
                                         days == 0 -> "Подписка истекла (0 дн.)"
                                         days != null -> "Осталось дней: $days"
+                                        !isTrialClaimed -> "Подписка отключена (0 дн.)"
                                         else -> "Подписка активна"
                                     },
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.Bold,
                                     color = textColor
                                 )
-                                if (isYellow || isRed) {
+                                if (isWarning || isExpired || !isTrialClaimed) {
                                     Surface(
-                                        onClick = { showPaymentDialog = true },
+                                        onClick = { viewModel.onRenewClicked { showPaymentDialog = true } },
                                         shape = RoundedCornerShape(12.dp),
-                                        color = if (isRed) Color(0xFFEF4444) else Color(0xFFF59E0B)
+                                        color = if (isExpired) Color(0xFFEF4444) else Color(0xFFF59E0B)
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -1240,10 +1237,11 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text("Текущий аккаунт", color = palette.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelLarge)
-                            Text(viewModel.username.ifBlank { viewModel.userEmail.ifBlank { "Подписка не добавлена" } },
+                            val currentAccountTitle = (if (viewModel.username.contains("@")) viewModel.username.substringBefore("@") else viewModel.username).ifBlank { viewModel.userEmail.ifBlank { "Подписка не добавлена" } }
+                            Text(currentAccountTitle,
                                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 
-                            val displayPaymentEmail = viewModel.paymentEmail.ifBlank { viewModel.username.ifBlank { viewModel.userEmail } }
+                            val displayPaymentEmail = viewModel.paymentEmail.ifBlank { viewModel.userEmail }
                             if (displayPaymentEmail.isNotBlank()) {
                                 HorizontalDivider(color = palette.outlineVariant.copy(alpha = 0.4f))
                                 Surface(
@@ -1271,6 +1269,10 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                             }
 
                             if (viewModel.username.isNotBlank()) {
+                                val subDays = viewModel.subscriptionDaysRemaining
+                                val subTrialClaimed = viewModel.isTrialClaimed
+                                val subExpired = subDays == 0 || (subDays == null && !subTrialClaimed)
+
                                 HorizontalDivider(color = palette.outlineVariant.copy(alpha = 0.4f))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1280,14 +1282,18 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                                     Column {
                                         Text("Статус подписки", style = MaterialTheme.typography.labelSmall, color = palette.onSurfaceVariant)
                                         Text(
-                                            text = viewModel.subscriptionDaysRemaining?.let { "Осталось: $it дн." } ?: "Активна",
+                                            text = when {
+                                                subDays != null -> "Осталось: $subDays дн."
+                                                !subTrialClaimed -> "Отключена (0 дн.)"
+                                                else -> "Активна"
+                                            },
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold,
-                                            color = palette.primary
+                                            color = if (subExpired) Color(0xFFEF4444) else palette.primary
                                         )
                                     }
                                     Button(
-                                        onClick = { showPaymentDialog = true },
+                                        onClick = { viewModel.onRenewClicked { showPaymentDialog = true } },
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
                                         Icon(Icons.Default.ShoppingCart, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -1315,6 +1321,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         ) {
                             viewModel.accounts.forEach { acc ->
                                 val isSelected = acc == viewModel.username
+                                val accDisplay = if (acc.contains("@")) acc.substringBefore("@") else acc
                                 Surface(
                                     onClick = { viewModel.selectAccount(acc, context) },
                                     shape = RoundedCornerShape(10.dp),
@@ -1329,7 +1336,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = acc,
+                                            text = accDisplay,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                             color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.weight(1f)
@@ -1935,10 +1942,13 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                                     Surface(
                                         shape = RoundedCornerShape(4.dp),
                                         color = when (log.tag) {
+                                            "PROXY" -> Color(0xFF8B5CF6).copy(alpha = 0.2f)
+                                            "DIRECT" -> Color(0xFF10B981).copy(alpha = 0.2f)
+                                            "BLOCK" -> Color(0xFFEF4444).copy(alpha = 0.2f)
+                                            "DNS" -> Color(0xFF06B6D4).copy(alpha = 0.2f)
+                                            "INBOUND" -> Color(0xFF3B82F6).copy(alpha = 0.2f)
                                             "TCP" -> palette.primaryContainer
                                             "UDP" -> palette.secondaryContainer
-                                            "DIRECT" -> Color(0xFF10B981).copy(alpha = 0.2f)
-                                            "PROXY" -> Color(0xFF8B5CF6).copy(alpha = 0.2f)
                                             "ERROR" -> palette.errorContainer
                                             "WARN" -> Color(0xFFF59E0B).copy(alpha = 0.2f)
                                             else -> palette.surfaceVariant
@@ -1951,10 +1961,13 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                                             fontSize = 10.sp,
                                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                                             color = when (log.tag) {
+                                                "PROXY" -> Color(0xFF7C3AED)
+                                                "DIRECT" -> Color(0xFF059669)
+                                                "BLOCK" -> Color(0xFFDC2626)
+                                                "DNS" -> Color(0xFF0891B2)
+                                                "INBOUND" -> Color(0xFF2563EB)
                                                 "TCP" -> palette.onPrimaryContainer
                                                 "UDP" -> palette.onSecondaryContainer
-                                                "DIRECT" -> Color(0xFF059669)
-                                                "PROXY" -> Color(0xFF7C3AED)
                                                 "ERROR" -> palette.onErrorContainer
                                                 "WARN" -> Color(0xFFD97706)
                                                 else -> palette.onSurfaceVariant
@@ -2083,6 +2096,192 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                 }
             }
         )
+    }
+
+    if (viewModel.showTrialDialog) {
+        Dialog(
+            onDismissRequest = {
+                if (!viewModel.isTrialLoading) {
+                    viewModel.dismissTrialDialog()
+                }
+            }
+        ) {
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = palette.surface,
+                tonalElevation = 6.dp,
+                border = BorderStroke(1.dp, palette.primary.copy(alpha = 0.25f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(60.dp)
+                            .background(
+                                color = palette.primaryContainer.copy(alpha = 0.7f),
+                                shape = CircleShape
+                            )
+                            .border(1.5.dp, palette.primary.copy(alpha = 0.4f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ShoppingCart,
+                            contentDescription = null,
+                            tint = palette.primary,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Бесплатная подписка на 7 дней",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = palette.onSurface,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            text = "Вам доступна одноразовая акция! Воспользуйтесь бесплатным пробным периодом на 7 дней прямо сейчас.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    Surface(
+                        color = palette.surfaceVariant.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, palette.outlineVariant.copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Shield,
+                                    contentDescription = null,
+                                    tint = palette.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    text = "7 дней полного доступа ко всем серверам",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = palette.onSurface
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.PowerSettingsNew,
+                                    contentDescription = null,
+                                    tint = palette.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    text = "Безлимитная скорость и шифрование",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = palette.onSurface
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = palette.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    text = "Без привязки банковской карты",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = palette.onSurface
+                                )
+                            }
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                viewModel.claimTrial { message ->
+                                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            enabled = !viewModel.isTrialLoading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            if (viewModel.isTrialLoading) {
+                                CircularProgressIndicator(
+                                    color = palette.onPrimary,
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.5.dp
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text("Активация…", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            } else {
+                                Text("Опробовать 7 дней бесплатно", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.dismissTrialDialog()
+                                showPaymentDialog = true
+                            },
+                            enabled = !viewModel.isTrialLoading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, palette.primary.copy(alpha = 0.5f))
+                        ) {
+                            Text(
+                                text = "Перейти сразу к оплате СБП",
+                                fontWeight = FontWeight.SemiBold,
+                                color = palette.primary,
+                                fontSize = 14.sp
+                            )
+                        }
+
+                        TextButton(
+                            onClick = { viewModel.dismissTrialDialog() },
+                            enabled = !viewModel.isTrialLoading,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Позже",
+                                color = palette.onSurfaceVariant,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if (showPaymentDialog) {

@@ -22,6 +22,8 @@ import com.example.v2rayng.vpn.V2RayConfigParser
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -74,6 +76,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var authError by mutableStateOf<String?>(null)
         private set
 
+    var authChallengeId by mutableStateOf<String?>(null)
+        private set
+
+    var authPendingEmail by mutableStateOf("")
+        private set
+
+    var authPendingLogin by mutableStateOf("")
+        private set
+
+    var authMessage by mutableStateOf<String?>(null)
+        private set
+
     var isAuthLoading by mutableStateOf(false)
         private set
 
@@ -98,11 +112,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     private val remainingDaysPattern = Regex("""[⏳⌛]\uFE0F?\s*(\d+)\s*[dD](?![\p{L}\p{N}])""")
+    private val userInfoExpirePattern = Regex("""expire=(\d+)""", RegexOption.IGNORE_CASE)
 
     // Subscription-provided snapshot, refreshed with the server list.
     val subscriptionDaysRemaining: Int?
-        get() = nodes.firstNotNullOfOrNull { node ->
-            remainingDaysPattern.find(node.name)?.groupValues?.get(1)?.toIntOrNull()
+        get() {
+            val now = System.currentTimeMillis()
+
+            val headerMatch = userInfoExpirePattern.find(subscriptionContent)
+            val headerExpireSec = headerMatch?.groupValues?.get(1)?.toLongOrNull()
+            val headerDays = if (headerExpireSec != null && headerExpireSec > 0) {
+                val diffMs = headerExpireSec * 1000L - now
+                if (diffMs <= 0) 0
+                else ((diffMs + 86400_000L - 1) / 86400_000L).toInt()
+            } else null
+
+            val nodeDays = nodes.firstNotNullOfOrNull { node ->
+                remainingDaysPattern.find(node.name)?.groupValues?.get(1)?.toIntOrNull()
+            }
+
+            val serverDays = headerDays ?: nodeDays
+
+            if (serverDays != null) {
+                if (serverDays == 0) return 0
+                return serverDays
+            }
+
+            val trialExpiry = prefs.getTrialExpiryTimestamp(username)
+            val trialDays = if (trialExpiry > now) {
+                val diffMs = trialExpiry - now
+                if (diffMs <= 0) 0
+                else ((diffMs + 86400_000L - 1) / 86400_000L).toInt()
+            } else 0
+
+            if (trialDays > 0) {
+                return trialDays
+            }
+
+            return null
         }
 
     var selectedNodeIndex by mutableIntStateOf(0)
@@ -150,6 +197,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var isAutoSelect by mutableStateOf(prefs.isAutoSelect)
         private set
 
+    val isTrialClaimed: Boolean get() = prefs.isTrialClaimed(username)
+
     var logs by mutableStateOf<List<com.example.v2rayng.vpn.VpnLogEntry>>(emptyList())
         private set
 
@@ -168,6 +217,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var availableUpdate by mutableStateOf<com.example.v2rayng.data.UpdateInfo?>(null)
         private set
     var isDownloadingUpdate by mutableStateOf(false)
+        private set
+
+    var showTrialDialog by mutableStateOf(false)
+        private set
+
+    var showExpiredDialog by mutableStateOf(false)
+
+    val isSubscriptionExpired: Boolean
+        get() {
+            val days = subscriptionDaysRemaining
+            return days == 0 || (days == null && username.isNotBlank() && !isTrialClaimed)
+        }
+
+    var isTrialLoading by mutableStateOf(false)
+        private set
+
+    var trialMessage by mutableStateOf<String?>(null)
         private set
 
     var rxBytesPerSec by mutableStateOf(0L)
@@ -215,6 +281,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (idx != -1 && selectedNodeIndex != idx) {
                         selectedNodeIndex = idx
                     }
+                }
+            }
+        }
+        viewModelScope.launch {
+            while (isActive) {
+                delay(60_000L)
+                if (isAutoSelect && nodes.isNotEmpty() && (isConnected || isConnecting)) {
+                    pingNodes()
+                }
+            }
+        }
+        if (username.contains("@")) {
+            val emailAddr = username
+            val cleanUser = username.substringBefore("@")
+            if (cleanUser.isNotBlank()) {
+                username = cleanUser
+                prefs.currentUsername = cleanUser
+                userEmail = emailAddr
+                prefs.userEmail = emailAddr
+                paymentEmail = emailAddr
+                prefs.paymentEmail = emailAddr
+
+                val updatedAccs = accounts.map { acc ->
+                    if (acc.contains("@")) acc.substringBefore("@") else acc
+                }.distinct()
+                accounts = updatedAccs
+                prefs.accounts = updatedAccs
+
+                val savedSub = prefs.getSubscription(emailAddr)
+                if (savedSub.isNotBlank()) {
+                    prefs.saveSubscription(cleanUser, savedSub)
+                    prefs.removeSubscription(emailAddr)
                 }
             }
         }
@@ -522,12 +620,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val wasActive = isConnected || isConnecting || isStopping
         username = newUsername
         prefs.currentUsername = newUsername
+
         if (newUsername.isBlank()) {
             subscriptionContent = ""
             nodes = emptyList()
+            userEmail = ""
+            paymentEmail = ""
             statusMessage = "Выполните вход для подключения"
             return
         }
+
         val saved = decodeSubscriptionContent(prefs.getSubscription(newUsername))
         if (saved.isNotBlank()) {
             subscriptionContent = saved
@@ -536,23 +638,161 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             subscriptionContent = ""
             nodes = emptyList()
         }
-        if (wasActive && context != null) {
-            if (nodes.isEmpty()) {
-                val intent = Intent(context, V2RayVpnService::class.java).apply {
-                    action = V2RayVpnService.ACTION_STOP
+
+        userEmail = ""
+        paymentEmail = ""
+
+        fetchSubscriptionFor(newUsername)
+
+        if (wasActive && context != null && nodes.isNotEmpty()) {
+            reconnectVpn(context)
+        } else if (nodes.isNotEmpty()) {
+            statusMessage = "Готов к подключению"
+            pingNodes()
+        }
+    }
+
+    fun onRenewClicked(onShowPayment: () -> Unit) {
+        val targetUser = username.ifBlank { userEmail.ifBlank { accounts.firstOrNull() ?: "" } }
+        if (!isLoggedIn || targetUser.isBlank()) {
+            onShowPayment()
+            return
+        }
+
+        viewModelScope.launch {
+            val available = checkServerTrialAvailable(targetUser)
+            if (available) {
+                showTrialDialog = true
+            } else {
+                onShowPayment()
+            }
+        }
+    }
+
+    private suspend fun checkServerTrialAvailable(user: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val encUser = java.net.URLEncoder.encode(user, "UTF-8")
+                val url = java.net.URL("$fixedHost/api/auth/trial_check?email=$encUser")
+                val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                    setRequestProperty("User-Agent", "Aether-Android")
                 }
-                context.startService(intent)
-                fetchSubscriptionFor(newUsername)
-            } else {
-                reconnectVpn(context)
+                if (conn.responseCode in 200..299) {
+                    val respText = conn.inputStream.bufferedReader().readText()
+                    val json = org.json.JSONObject(respText)
+                    val available = json.optBoolean("available", false)
+                    if (available) {
+                        prefs.setTrialClaimed(user, false)
+                    } else {
+                        prefs.setTrialClaimed(user, true)
+                    }
+                    available
+                } else {
+                    !prefs.isTrialClaimed(user)
+                }
+            } catch (_: Exception) {
+                !prefs.isTrialClaimed(user)
             }
-        } else {
-            if (nodes.isEmpty()) {
-                fetchSubscriptionFor(newUsername)
-            } else {
-                statusMessage = "Готов к подключению"
-                pingNodes()
+        }
+    }
+
+    fun resetTrialForUser(targetUser: String = username) {
+        val user = targetUser.ifBlank { username }
+        prefs.resetTrial(user)
+        showTrialDialog = false
+    }
+
+    fun dismissTrialDialog() {
+        showTrialDialog = false
+    }
+
+    fun claimTrial(onSuccess: (String) -> Unit = {}) {
+        val targetUser = username.ifBlank { userEmail.ifBlank { accounts.firstOrNull() ?: "" } }
+        if (targetUser.isBlank() || isTrialLoading) return
+        isTrialLoading = true
+        trialMessage = null
+
+        viewModelScope.launch {
+            var serverMessage: String? = null
+
+            val extractedUuid = nodes.firstNotNullOfOrNull { node ->
+                val uri = node.uri
+                if (uri.contains("://") && uri.contains("@")) {
+                    uri.substringAfter("://").substringBefore("@").trim()
+                } else null
+            }.orEmpty()
+
+            withContext(Dispatchers.IO) {
+                val encUser = java.net.URLEncoder.encode(targetUser, "UTF-8")
+                val encUuid = java.net.URLEncoder.encode(extractedUuid.ifBlank { targetUser }, "UTF-8")
+                val hosts = listOf(fixedHost, "https://app.mikaela-go.ru", "https://mikaela-go.ru:2053", "https://app.mikaela-go.ru:2053")
+
+                val candidateEndpoints = mutableListOf<String>()
+                for (host in hosts) {
+                    candidateEndpoints.add("$host/api/auth/trial")
+                    candidateEndpoints.add("$host/api/trial/claim?email=$encUser&username=$encUser&sub_id=$encUuid&uuid=$encUuid&days=7&enable=1")
+                    candidateEndpoints.add("$host/api/sub/extend?email=$encUser&username=$encUser&sub_id=$encUuid&uuid=$encUuid&days=7&enable=1")
+                    candidateEndpoints.add("$host/sub/extend?email=$encUser&username=$encUser&sub_id=$encUuid&uuid=$encUuid&days=7&enable=1")
+                    candidateEndpoints.add("$host/sub/claim?email=$encUser&username=$encUser&sub_id=$encUuid&uuid=$encUuid&days=7&enable=1")
+                    candidateEndpoints.add("$host/api/pay/trial?email=$encUser&username=$encUser&sub_id=$encUuid&uuid=$encUuid&days=7&enable=1")
+                }
+
+                val tasks = candidateEndpoints.map { endpoint ->
+                    async {
+                        try {
+                            val conn = (java.net.URL(endpoint).openConnection() as java.net.HttpURLConnection).apply {
+                                requestMethod = if (endpoint.contains("?")) "GET" else "POST"
+                                connectTimeout = 3000
+                                readTimeout = 3000
+                                setRequestProperty("User-Agent", "Aether-Android")
+                                if (requestMethod == "POST") {
+                                    doOutput = true
+                                    setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                                    val payload = org.json.JSONObject().apply {
+                                        put("email", targetUser)
+                                        put("username", targetUser)
+                                        put("sub_id", extractedUuid.ifBlank { targetUser })
+                                        put("uuid", extractedUuid.ifBlank { targetUser })
+                                        put("trial_days", 7)
+                                        put("days", 7)
+                                        put("enable", true)
+                                    }.toString()
+                                    outputStream.bufferedWriter().use { it.write(payload) }
+                                }
+                            }
+                            val code = conn.responseCode
+                            if (code in 200..299) {
+                                val respText = conn.inputStream.bufferedReader().readText()
+                                val json = try { org.json.JSONObject(respText) } catch (_: Exception) { null }
+                                val subContent = json?.optString("subscription_content", "")?.ifBlank { null }
+                                if (subContent != null) {
+                                    withContext(Dispatchers.Main) {
+                                        val decoded = decodeSubscriptionContent(subContent)
+                                        subscriptionContent = decoded
+                                        prefs.saveSubscription(targetUser, decoded)
+                                        parseNodes(decoded)
+                                    }
+                                }
+                                V2RayVpnService.addLog("INFO", "3x-ui триал одобрен ($code): $endpoint")
+                                json?.optString("message", "Пробный период на 7 дней активирован") ?: "Пробный период на 7 дней активирован"
+                            } else null
+                        } catch (_: Exception) { null }
+                    }
+                }
+                val results = tasks.awaitAll()
+                serverMessage = results.firstOrNull { it != null }
             }
+
+            isTrialLoading = false
+            prefs.setTrialClaimed(targetUser, true)
+            showTrialDialog = false
+            fetchSubscriptionFor(targetUser)
+
+            val msg = serverMessage ?: "Бесплатный период на 7 дней успешно активирован!"
+            onSuccess(msg)
         }
     }
 
@@ -641,18 +881,76 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         V2RayVpnService.clearLogs()
     }
 
-    fun loginUser(email: String, pass: String) {
+    fun loginUser(emailOrLogin: String, pass: String) {
         isAuthLoading = true
         authError = null
+        authChallengeId = null
         viewModelScope.launch {
-            val result = authRepository.login(fixedHost, email, pass)
+            val result = authRepository.login(fixedHost, emailOrLogin, pass)
             isAuthLoading = false
             result.onSuccess { authResult ->
-                handleAuthSuccess(email, authResult)
+                handleAuthSuccess(authResult.username, authResult)
             }.onFailure { error ->
                 authError = error.localizedMessage ?: "Ошибка входа"
             }
         }
+    }
+
+    fun startRegistration(
+        login: String,
+        email: String,
+        pass: String,
+        mode: String = "register",
+        subId: String = ""
+    ) {
+        isAuthLoading = true
+        authError = null
+        authMessage = null
+        viewModelScope.launch {
+            val result = authRepository.registerStart(fixedHost, login, email, pass, mode, subId)
+            isAuthLoading = false
+            result.onSuccess { res ->
+                if (res.isVerificationRequired && !res.challengeId.isNullOrBlank()) {
+                    authChallengeId = res.challengeId
+                    authPendingEmail = email
+                    authPendingLogin = login
+                    authMessage = res.message.ifBlank { "Код подтверждения отправлен на Email" }
+                } else if (res.authResult != null) {
+                    authChallengeId = null
+                    handleAuthSuccess(res.authResult.username, res.authResult)
+                } else {
+                    authError = res.message.ifBlank { "Ошибка регистрации" }
+                }
+            }.onFailure { error ->
+                authError = error.localizedMessage ?: "Ошибка регистрации"
+            }
+        }
+    }
+
+    fun confirmRegistration(challengeId: String, code: String) {
+        if (challengeId.isBlank() || code.isBlank()) {
+            authError = "Введите код из письма"
+            return
+        }
+        isAuthLoading = true
+        authError = null
+        viewModelScope.launch {
+            val result = authRepository.registerConfirm(fixedHost, challengeId, code)
+            isAuthLoading = false
+            result.onSuccess { authResult ->
+                authChallengeId = null
+                val user = authResult.username.ifBlank { authPendingLogin.ifBlank { authPendingEmail } }
+                handleAuthSuccess(user, authResult)
+            }.onFailure { error ->
+                authError = error.localizedMessage ?: "Неверный код подтверждения"
+            }
+        }
+    }
+
+    fun cancelRegistrationCodeStep() {
+        authChallengeId = null
+        authError = null
+        authMessage = null
     }
 
     fun updatePaymentEmail(email: String) {
@@ -661,20 +959,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun registerUser(email: String, pass: String, payEmail: String = "") {
-        isAuthLoading = true
-        authError = null
         if (payEmail.isNotBlank()) {
             updatePaymentEmail(payEmail)
         }
-        viewModelScope.launch {
-            val result = authRepository.register(fixedHost, email, pass, payEmail)
-            isAuthLoading = false
-            result.onSuccess { authResult ->
-                handleAuthSuccess(email, authResult)
-            }.onFailure { error ->
-                authError = error.localizedMessage ?: "Ошибка регистрации"
-            }
-        }
+        val login = email.split("@")[0].ifBlank { email }
+        startRegistration(login = login, email = email, pass = pass, mode = "register")
     }
 
     fun updateProfile(newPayEmail: String, newPass: String? = null, onResult: (Boolean, String) -> Unit) {
@@ -692,55 +981,70 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun activateUser(email: String, subId: String, pass: String) {
-        isAuthLoading = true
-        authError = null
-        viewModelScope.launch {
-            val result = authRepository.activate(fixedHost, email, subId, pass)
-            isAuthLoading = false
-            result.onSuccess { authResult ->
-                handleAuthSuccess(email, authResult)
-            }.onFailure { error ->
-                authError = error.localizedMessage ?: "Ошибка активации"
-            }
-        }
+        val login = email.split("@")[0].ifBlank { email }
+        startRegistration(login = login, email = email, pass = pass, mode = "activate", subId = subId)
     }
 
     private fun decodeSubscriptionContent(content: String): String {
         val trimmed = content.trim()
-        if (trimmed.startsWith("vless://") || trimmed.startsWith("vmess://") || trimmed.startsWith("ss://") || trimmed.startsWith("trojan://")) {
+        if (trimmed.isBlank()) return ""
+
+        val lines = trimmed.lines()
+        val metaLines = lines.filter { it.startsWith("#") }
+        val bodyLines = lines.filterNot { it.startsWith("#") }.joinToString("\n").trim()
+
+        if (bodyLines.startsWith("vless://") || bodyLines.startsWith("vmess://") || bodyLines.startsWith("ss://") || bodyLines.startsWith("trojan://")) {
             return trimmed
         }
-        return try {
-            val bytes = android.util.Base64.decode(trimmed, android.util.Base64.DEFAULT)
-            val decoded = String(bytes, Charsets.UTF_8).trim()
-            if (decoded.contains("://")) decoded else trimmed
+
+        val decodedBody = try {
+            val bytes = android.util.Base64.decode(bodyLines, android.util.Base64.DEFAULT)
+            val d = String(bytes, Charsets.UTF_8).trim()
+            if (d.contains("://")) d else bodyLines
         } catch (_: Exception) {
-            trimmed
+            bodyLines
         }
+
+        val metaPrefix = if (metaLines.isNotEmpty()) metaLines.joinToString("\n") + "\n" else ""
+        return metaPrefix + decodedBody
     }
 
-    private fun handleAuthSuccess(email: String, authResult: com.example.v2rayng.data.AuthResult) {
+    private fun handleAuthSuccess(loginInput: String, authResult: com.example.v2rayng.data.AuthResult) {
+        val subUsername = authResult.username.ifBlank {
+            if (loginInput.contains("@")) loginInput.substringBefore("@") else loginInput
+        }.trim()
+        val emailAddr = authResult.contactEmail?.ifBlank { null }
+            ?: (if (loginInput.contains("@")) loginInput else "")
+
         prefs.authToken = authResult.token
-        prefs.userEmail = email
-        userEmail = email
+
+        username = subUsername
+        prefs.currentUsername = subUsername
+
+        val cleanInput = loginInput.trim()
+        val filterOut = setOf(cleanInput, emailAddr)
+        val updatedAccounts = (accounts.filter { it !in filterOut && it != subUsername && !it.contains("@") } + subUsername).distinct()
+        accounts = updatedAccounts
+        prefs.accounts = updatedAccounts
+
+        if (emailAddr.isNotBlank()) {
+            userEmail = emailAddr
+            prefs.userEmail = emailAddr
+            paymentEmail = emailAddr
+            prefs.paymentEmail = emailAddr
+        }
+
         isLoggedIn = true
         authError = null
-        if (!accounts.contains(email)) {
-            val updated = accounts + email
-            accounts = updated
-            prefs.accounts = updated
-        }
-        username = email
-        prefs.currentUsername = email
 
         val rawSub = authResult.subscriptionContent.orEmpty()
         val decoded = decodeSubscriptionContent(rawSub)
         if (decoded.contains("://")) {
             subscriptionContent = decoded
-            prefs.saveSubscription(email, decoded)
+            prefs.saveSubscription(subUsername, decoded)
             parseNodes(decoded)
         } else {
-            fetchSubscriptionFor(email)
+            fetchSubscriptionFor(subUsername)
         }
     }
 
@@ -904,19 +1208,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         subscriptionJob = viewModelScope.launch {
             val result = repository.fetchSubscription(fixedHost, targetUser)
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            if (targetUser != username || targetUser !in accounts) return@launch
             isLoading = false
             result.onSuccess { content ->
                 val prevDays = subscriptionDaysRemaining
                 val decoded = decodeSubscriptionContent(content)
                 subscriptionContent = decoded
-                prefs.saveSubscription(targetUser, decoded)
+
+                val metaMatch = Regex("""#aether-meta:\s*username=([^&\s]*)(?:&email=([^\s]*))?""").find(content)
+                val resolvedUsername = metaMatch?.groupValues?.get(1)?.ifBlank { null }
+                val resolvedEmail = metaMatch?.groupValues?.get(2)?.ifBlank { null }
+
+                val finalUsername = resolvedUsername ?: (if (targetUser.contains("@")) targetUser.substringBefore("@") else targetUser)
+
+                if (finalUsername.isNotBlank() && (finalUsername != username || targetUser != finalUsername)) {
+                    val oldName = username
+                    username = finalUsername
+                    prefs.currentUsername = finalUsername
+                    val updatedAccounts = accounts.map { acc ->
+                        if (acc == targetUser || acc == oldName) finalUsername else acc
+                    }.distinct()
+                    accounts = updatedAccounts
+                    prefs.accounts = updatedAccounts
+
+                    prefs.saveSubscription(finalUsername, decoded)
+                    if (targetUser != finalUsername) {
+                        prefs.removeSubscription(targetUser)
+                    }
+                } else {
+                    prefs.saveSubscription(targetUser, decoded)
+                }
+
+                if (!resolvedEmail.isNullOrBlank()) {
+                    userEmail = resolvedEmail
+                    prefs.userEmail = resolvedEmail
+                    paymentEmail = resolvedEmail
+                    prefs.paymentEmail = resolvedEmail
+                } else if (!targetUser.contains("@") && resolvedUsername != null) {
+                    userEmail = ""
+                    prefs.userEmail = ""
+                    paymentEmail = ""
+                    prefs.paymentEmail = ""
+                }
+
                 parseNodes(decoded)
                 checkSubscriptionExpiry(prevDays)
                 statusMessage = "Готов к подключению (${nodes.size} узлов)"
                 pingNodes()
             }.onFailure { error ->
-                statusMessage = "Ошибка подписки: ${error.localizedMessage ?: "Сбой"}"
+                if (nodes.isNotEmpty()) {
+                    statusMessage = "Готов к подключению (${nodes.size} узлов)"
+                } else {
+                    statusMessage = "Ошибка подписки: ${error.localizedMessage ?: "Сбой"}"
+                }
             }
         }
     }
@@ -1035,6 +1378,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val bestIdx = getBestNodeIndex()
                     if (bestIdx in nodes.indices && bestIdx != selectedNodeIndex) {
                         selectedNodeIndex = bestIdx
+                        if (isConnected || isConnecting) {
+                            val context = getApplication<Application>()
+                            reconnectVpn(context)
+                        }
                     }
                 }
             }
@@ -1102,6 +1449,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             context.startService(intent)
             statusMessage = "VPN отключен"
         } else {
+            if (isSubscriptionExpired) {
+                statusMessage = "Подписка истекла. Продлите доступ"
+                showExpiredDialog = true
+                return
+            }
             val intent = VpnService.prepare(context)
             if (intent != null) {
                 statusMessage = "Требуется разрешение для VPN"
@@ -1113,6 +1465,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startVpnService(context: android.content.Context) {
         if (isConnected || isConnecting || isStopping) return
+        if (isSubscriptionExpired) {
+            statusMessage = "Подписка истекла. Продлите доступ"
+            showExpiredDialog = true
+            return
+        }
         startVpnServiceInternal(context)
     }
 

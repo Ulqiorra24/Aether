@@ -184,6 +184,41 @@ class VpnPrefs(context: Context) {
     val isLoggedIn: Boolean
         get() = authToken.isNotBlank() && currentUsername.isNotBlank() && currentUsername !in ignoredAccounts
 
+    fun isTrialClaimed(username: String): Boolean {
+        if (username.isBlank() || username in ignoredAccounts) return true
+        return prefs.getBoolean("trial_claimed_$username", false)
+    }
+
+    fun setTrialClaimed(username: String, claimed: Boolean = true) {
+        if (username.isNotBlank() && username !in ignoredAccounts) {
+            prefs.edit().putBoolean("trial_claimed_$username", claimed).apply()
+        }
+    }
+
+    fun getTrialExpiryTimestamp(username: String): Long {
+        if (username.isBlank() || username in ignoredAccounts) return 0L
+        return prefs.getLong("trial_expiry_$username", 0L)
+    }
+
+    fun addTrialDays(username: String, days: Int = 7) {
+        if (username.isBlank() || username in ignoredAccounts) return
+        val currentExpiry = getTrialExpiryTimestamp(username)
+        val now = System.currentTimeMillis()
+        val base = if (currentExpiry > now) currentExpiry else now
+        val newExpiry = base + days * 86400_000L
+        prefs.edit().putLong("trial_expiry_$username", newExpiry).apply()
+    }
+
+    fun resetTrial(username: String) {
+        val user = username.trim()
+        if (user.isNotBlank()) {
+            prefs.edit()
+                .remove("trial_claimed_$user")
+                .remove("trial_expiry_$user")
+                .apply()
+        }
+    }
+
     fun clearAuth() {
         prefs.edit()
             .remove("auth_token")
