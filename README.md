@@ -40,12 +40,6 @@
 * `SplashScreen.kt` — Стартовый экран анимации запуска.
 * `MainViewModel.kt` — Центральная ViewModel, управляющая состоянием VPN-сервиса, авторизацией, загрузкой подписок и подсчетом времени.
 
-### 💾 Data Слой
-* `AuthRepository.kt` — Взаимодействие с API авторизации и регистрации на сервере Aether (`/api/account/register/start`, `/api/account/register/confirm`, `/api/auth/login`).
-* `SubscriptionRepository.kt` — Загрузка и декодирование подписок по протоколу VLESS / 3x-ui.
-* `VpnPrefs.kt` — Локальное шифрованное и обычное хранилище настроек (SharedPreferences), выбранных узлов и флагов триала.
-* `UpdateChecker.kt` — Прямая загрузка обновлений APK в обход VPN на скорости локального провайдера.
-
 ### ⚡ VPN и Xray Ядро
 * `V2RayVpnService.kt` — Нативный Android `VpnService`. Управляет циклом жизни ядра Xray, создает TUN-интерфейс (`10.0.0.2`), читает файлы логов `access.log` в реальном времени и ведет фоновый мониторинг связи.
 * `V2RayConfigParser.kt` — Парсер и генератор конфигураций JSON для Xray-core (VLESS + REALITY, gRPC, XHTTP, QUIC, обход РФ и LAN, AdGuard DNS, Kill Switch).
