@@ -54,6 +54,18 @@ class VpnPrefs(context: Context) {
         }
     }
 
+    var lastReadNewsId: Int
+        get() = prefs.getInt("last_read_news_id", 0)
+        set(value) = prefs.edit().putInt("last_read_news_id", value).apply()
+
+    var lastReadSupportMsgId: Int
+        get() = prefs.getInt("last_read_support_msg_id", 0)
+        set(value) = prefs.edit().putInt("last_read_support_msg_id", value).apply()
+
+    var lastNotifiedSupportMsgId: Int
+        get() = prefs.getInt("last_notified_support_msg_id", 0)
+        set(value) = prefs.edit().putInt("last_notified_support_msg_id", value).apply()
+
     var accounts: List<String>
         get() {
             if (authToken.isBlank()) return emptyList()
@@ -216,6 +228,19 @@ class VpnPrefs(context: Context) {
                 .remove("trial_claimed_$user")
                 .remove("trial_expiry_$user")
                 .apply()
+        }
+    }
+
+    fun getLastClearedSupportTime(username: String): Long {
+        val user = username.trim().lowercase()
+        if (user.isBlank()) return 0L
+        return prefs.getLong("last_cleared_support_$user", 0L)
+    }
+
+    fun setLastClearedSupportTime(username: String, timestampSec: Long = System.currentTimeMillis() / 1000) {
+        val user = username.trim().lowercase()
+        if (user.isNotBlank()) {
+            prefs.edit().putLong("last_cleared_support_$user", timestampSec).apply()
         }
     }
 

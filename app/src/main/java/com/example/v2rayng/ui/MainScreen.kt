@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
@@ -79,7 +81,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel = viewModel()) {
+fun MainScreen(viewModel: MainViewModel = viewModel(), initialTab: Int = 0) {
     val context = LocalContext.current
 
     if (!viewModel.isLoggedIn) {
@@ -87,12 +89,31 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
         return
     }
 
-    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(initialTab) }
+
+    LaunchedEffect(initialTab) {
+        if (initialTab in 0..5) {
+            selectedTab = initialTab
+        }
+    }
+
+    LaunchedEffect(selectedTab) {
+        viewModel.isSupportActive = (selectedTab == 3)
+    }
     val homeScroll = rememberScrollState()
     val serversScroll = rememberScrollState()
+    val newsScroll = rememberScrollState()
+    val supportScroll = rememberScrollState()
     val profileScroll = rememberScrollState()
     val settingsScroll = rememberScrollState()
-    val scrollState = when (selectedTab) { 1 -> serversScroll; 2 -> profileScroll; 3 -> settingsScroll; else -> homeScroll }
+    val scrollState = when (selectedTab) { 
+        1 -> serversScroll
+        2 -> newsScroll
+        3 -> supportScroll
+        4 -> profileScroll
+        5 -> settingsScroll
+        else -> homeScroll 
+    }
     var coreVersion by rememberSaveable { mutableStateOf("Загрузка…") }
     LaunchedEffect(Unit) {
         coreVersion = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -182,6 +203,8 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     val tabs = listOf(
                         "Главная" to Icons.Default.Home,
                         "Серверы" to Icons.Default.Dns,
+                        "Новости" to Icons.Default.Notifications,
+                        "Поддержка" to Icons.Default.Chat,
                         "Профиль" to Icons.Default.Person,
                         "Настройки" to Icons.Default.Settings
                     )
@@ -189,7 +212,19 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         NavigationBarItem(
                             selected = selectedTab == index,
                             onClick = { selectedTab = index },
-                            icon = { Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                            icon = {
+                                BadgedBox(
+                                    badge = {
+                                        if (index == 2 && viewModel.unreadNewsCount > 0) {
+                                            Badge { Text("${viewModel.unreadNewsCount}") }
+                                        } else if (index == 3 && viewModel.unreadSupportCount > 0) {
+                                            Badge { Text("${viewModel.unreadSupportCount}") }
+                                        }
+                                    }
+                                ) {
+                                    Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
+                                }
+                            },
                             label = { Text(title, maxLines = 1, fontSize = 10.sp) }
                         )
                     }
@@ -198,7 +233,25 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
         },
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Aether", fontWeight = FontWeight.Bold, letterSpacing = 1.sp) },
+                title = {
+                    val titleText = when (selectedTab) {
+                        3 -> "Поддержка"
+                        2 -> "Новости"
+                        else -> "Aether"
+                    }
+                    Text(titleText, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                },
+                actions = {
+                    if (selectedTab == 3 && viewModel.supportMessages.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.openSupportClearDialog() }) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Очистить чат",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -210,7 +263,10 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .verticalScroll(scrollState)
+                .let { 
+                    if (selectedTab == 2 || selectedTab == 3) it.fillMaxSize() 
+                    else it.verticalScroll(scrollState) 
+                }
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -1042,7 +1098,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                                             textAlign = TextAlign.Center
                                         )
                                         Button(
-                                            onClick = { selectedTab = 2 },
+                                            onClick = { selectedTab = 4 },
                                             shape = RoundedCornerShape(12.dp)
                                         ) {
                                             Text("Перейти в профиль")
@@ -1230,6 +1286,9 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     }
                 }
                 2 -> {
+                    NewsScreen(viewModel = viewModel)
+                }
+                4 -> {
                     Text("Профиль", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
                         modifier = Modifier.fillMaxWidth())
                     Surface(shape = RoundedCornerShape(24.dp), color = palette.surface.copy(alpha = 0.8f),
@@ -1397,6 +1456,9 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         }
                 }
                 3 -> {
+                    SupportScreen(viewModel = viewModel)
+                }
+                5 -> {
                     Text("Настройки", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
                         modifier = Modifier.fillMaxWidth())
 

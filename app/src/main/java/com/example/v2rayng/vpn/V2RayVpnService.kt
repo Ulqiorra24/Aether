@@ -370,6 +370,7 @@ class V2RayVpnService : VpnService() {
                 currentConnectedUri.value = uri
                 startForeground(NOTIFICATION_ID, notification("VPN подключён"))
                 startWatchdog(allNodeUris, allNodeNames, uri, bypassLan, bypassRu)
+                startSupportPolling()
             }
         }
         return START_NOT_STICKY
@@ -729,8 +730,89 @@ class V2RayVpnService : VpnService() {
         requestStop("Разрешение VPN отозвано")
     }
 
+    private var supportPollingJob: Job? = null
+
+    private fun startSupportPolling() {
+        supportPollingJob?.cancel()
+        supportPollingJob = scope.launch(Dispatchers.IO) {
+            val prefs = VpnPrefs(applicationContext)
+            val authRepo = com.example.v2rayng.data.AuthRepository()
+            while (isActive) {
+                try {
+                    val host = prefs.fixedHost.removeSuffix("/")
+                    val username = prefs.currentUsername
+                    val email = prefs.userEmail
+                    val currentNick = username.ifBlank { email.substringBefore("@") }
+                    val currentMail = email.ifBlank { username }
+                    if (currentNick.isNotBlank() || currentMail.isNotBlank()) {
+                        val suppRes = authRepo.getSupportMessages(host, currentMail, currentNick)
+                        if (suppRes.isSuccess) {
+                            val messages = suppRes.getOrDefault(emptyList())
+                            val clearedTime = prefs.getLastClearedSupportTime(currentNick)
+                            val filtered = if (clearedTime > 0) messages.filter { it.createdAt > clearedTime } else messages
+                            val lastNotified = prefs.lastNotifiedSupportMsgId
+                            val newAdminMsgs = filtered.filter { it.isAdmin && it.id > lastNotified }.sortedBy { it.id }
+                            if (newAdminMsgs.isNotEmpty()) {
+                                for (msg in newAdminMsgs) {
+                                    if (msg.id > prefs.lastNotifiedSupportMsgId) {
+                                        prefs.lastNotifiedSupportMsgId = msg.id
+                                        sendSupportPushNotification(applicationContext, msg.id, msg.message)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+                delay(15_000)
+            }
+        }
+    }
+
+    private fun sendSupportPushNotification(context: android.content.Context, msgId: Int, messageText: String) {
+        val manager = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "support_alerts"
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId, 
+                "Aether Поддержка", 
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Уведомления об ответах от службы поддержки Aether"
+                enableVibration(true)
+            }
+            manager.createNotificationChannel(channel)
+        }
+        
+        val intent = Intent(context, com.example.v2rayng.MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("navigate_to_tab", 3)
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            3000 + msgId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(com.example.v2rayng.R.drawable.ic_qs_aether_logo)
+            .setContentTitle("Aether Поддержка")
+            .setContentText(messageText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(messageText))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+            
+        manager.notify(3000 + msgId, notification)
+    }
+
     override fun onDestroy() {
         stopRequested = true
+        supportPollingJob?.cancel()
         unregisterNetworkCallback()
         runCatching { probeSocket?.close() }
         currentConnectedUri.value = null

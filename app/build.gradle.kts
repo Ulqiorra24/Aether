@@ -39,7 +39,7 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
-            resValue("string", "app_name", "Aether Debug")
+            resValue("string", "app_name", "Aether")
         }
         release {
             signingConfig = signingConfigs.getByName("aetherRelease")

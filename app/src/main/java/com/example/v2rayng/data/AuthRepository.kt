@@ -25,6 +25,19 @@ data class RegisterResponse(
     val message: String = ""
 )
 
+data class NewsItem(
+    val id: Int,
+    val text: String,
+    val createdAt: Long
+)
+
+data class SupportMessage(
+    val id: Int,
+    val message: String,
+    val isAdmin: Boolean,
+    val createdAt: Long
+)
+
 class AuthRepository {
 
     suspend fun login(baseUrl: String, emailOrLogin: String, password: String): Result<AuthResult> =
@@ -221,4 +234,114 @@ class AuthRepository {
             Result.failure(e)
         }
     }
+
+    suspend fun getNews(baseUrl: String): Result<List<NewsItem>> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = URL("$baseUrl/api/news")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 10_000
+                    readTimeout = 10_000
+                    setRequestProperty("Accept", "application/json")
+                }
+                val statusCode = connection.responseCode
+                val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
+                val responseText = BufferedReader(InputStreamReader(stream ?: connection.inputStream, "UTF-8")).use { it.readText() }
+
+                if (statusCode in 200..299) {
+                    val json = JSONObject(responseText)
+                    val jsonArray = json.optJSONArray("news") ?: org.json.JSONArray()
+                    val list = mutableListOf<NewsItem>()
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        list.add(
+                            NewsItem(
+                                id = obj.optInt("id"),
+                                text = obj.optString("text"),
+                                createdAt = obj.optLong("created_at")
+                            )
+                        )
+                    }
+                    Result.success(list)
+                } else {
+                    Result.failure(Exception("Server error $statusCode"))
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    suspend fun getSupportMessages(baseUrl: String, email: String, username: String): Result<List<SupportMessage>> =
+        withContext(Dispatchers.IO) {
+            try {
+                val encEmail = java.net.URLEncoder.encode(email, "UTF-8")
+                val encUser = java.net.URLEncoder.encode(username, "UTF-8")
+                val url = URL("$baseUrl/api/support?email=$encEmail&username=$encUser")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 10_000
+                    readTimeout = 10_000
+                    setRequestProperty("Accept", "application/json")
+                }
+                val statusCode = connection.responseCode
+                val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
+                val responseText = BufferedReader(InputStreamReader(stream ?: connection.inputStream, "UTF-8")).use { it.readText() }
+
+                if (statusCode in 200..299) {
+                    val json = JSONObject(responseText)
+                    val jsonArray = json.optJSONArray("messages") ?: org.json.JSONArray()
+                    val list = mutableListOf<SupportMessage>()
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        list.add(
+                            SupportMessage(
+                                id = obj.optInt("id"),
+                                message = obj.optString("message"),
+                                isAdmin = obj.optBoolean("is_admin"),
+                                createdAt = obj.optLong("created_at")
+                            )
+                        )
+                    }
+                    Result.success(list)
+                } else {
+                    Result.failure(Exception("Server error $statusCode"))
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    suspend fun sendSupportMessage(baseUrl: String, email: String, username: String, message: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = URL("$baseUrl/api/support")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 10_000
+                    readTimeout = 10_000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                    setRequestProperty("Accept", "application/json")
+                }
+                val payload = JSONObject().apply {
+                    put("email", email)
+                    put("username", username)
+                    put("message", message)
+                }
+                OutputStreamWriter(connection.outputStream, "UTF-8").use { os ->
+                    os.write(payload.toString())
+                    os.flush()
+                }
+
+                val statusCode = connection.responseCode
+                if (statusCode in 200..299) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(Exception("Server error $statusCode"))
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
 }

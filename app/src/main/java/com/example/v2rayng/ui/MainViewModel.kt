@@ -111,6 +111,144 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var nodes by mutableStateOf<List<VpnNode>>(emptyList())
         private set
 
+    var newsList by mutableStateOf<List<com.example.v2rayng.data.NewsItem>>(emptyList())
+        private set
+
+    var unreadNewsCount by mutableStateOf(0)
+        private set
+
+    var supportMessages by mutableStateOf<List<com.example.v2rayng.data.SupportMessage>>(emptyList())
+        private set
+
+    var unreadSupportCount by mutableStateOf(0)
+        private set
+
+    var isSupportActive by mutableStateOf(false)
+
+    private var globalPollingJob: kotlinx.coroutines.Job? = null
+
+    init {
+        startGlobalPolling()
+    }
+
+    fun startGlobalPolling() {
+        if (globalPollingJob?.isActive == true) return
+        globalPollingJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            while (true) {
+                if (isLoggedIn) {
+                    try {
+                        refreshNewsAndSupportInternal()
+                    } catch (_: Exception) {}
+                }
+                kotlinx.coroutines.delay(4000)
+            }
+        }
+    }
+
+    fun refreshNewsAndSupport() {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            refreshNewsAndSupportInternal()
+        }
+    }
+
+    private suspend fun refreshNewsAndSupportInternal() {
+        val newsRes = authRepository.getNews(fixedHost)
+        if (newsRes.isSuccess) {
+            val list = newsRes.getOrDefault(emptyList())
+            val lastRead = prefs.lastReadNewsId
+            val unread = list.count { it.id > lastRead }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                newsList = list
+                unreadNewsCount = unread
+            }
+        }
+        val currentNick = username.ifBlank { userEmail.substringBefore("@") }.ifBlank { "user" }
+        val currentMail = userEmail.ifBlank { username }
+        if (currentNick.isNotBlank() || currentMail.isNotBlank()) {
+            val suppRes = authRepository.getSupportMessages(fixedHost, currentMail, currentNick)
+            if (suppRes.isSuccess) {
+                val messages = suppRes.getOrDefault(emptyList())
+                val clearedTime = prefs.getLastClearedSupportTime(currentNick)
+                val filteredMessages = if (clearedTime > 0) {
+                    messages.filter { it.createdAt > clearedTime }
+                } else {
+                    messages
+                }
+                val lastReadSupp = prefs.lastReadSupportMsgId
+                val unreadSupp = filteredMessages.count { it.isAdmin && it.id > lastReadSupp }
+
+                val lastNotified = prefs.lastNotifiedSupportMsgId
+                val newAdminMsgs = filteredMessages.filter { it.isAdmin && it.id > lastNotified }.sortedBy { it.id }
+                if (newAdminMsgs.isNotEmpty()) {
+                    val context = getApplication<android.app.Application>().applicationContext
+                    for (adminMsg in newAdminMsgs) {
+                        if (adminMsg.id > prefs.lastNotifiedSupportMsgId) {
+                            prefs.lastNotifiedSupportMsgId = adminMsg.id
+                            if (!isSupportActive) {
+                                sendSupportPushNotification(context, adminMsg.id, adminMsg.message)
+                            }
+                        }
+                    }
+                }
+
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    supportMessages = filteredMessages
+                    unreadSupportCount = unreadSupp
+                }
+            }
+        }
+    }
+
+    fun markNewsRead() {
+        if (newsList.isNotEmpty()) {
+            val maxId = newsList.maxOfOrNull { it.id } ?: prefs.lastReadNewsId
+            prefs.lastReadNewsId = maxId
+            unreadNewsCount = 0
+        }
+    }
+
+    fun markSupportRead() {
+        if (supportMessages.isNotEmpty()) {
+            val maxAdminId = supportMessages.filter { it.isAdmin }.maxOfOrNull { it.id }
+                ?: supportMessages.maxOfOrNull { it.id }
+                ?: prefs.lastReadSupportMsgId
+            prefs.lastReadSupportMsgId = maxAdminId
+            unreadSupportCount = 0
+        } else {
+            unreadSupportCount = 0
+        }
+    }
+
+    fun clearSupportChatLocal() {
+        val currentNick = username.ifBlank { userEmail.substringBefore("@") }.ifBlank { "user" }
+        val maxTimestamp = supportMessages.maxOfOrNull { it.createdAt } ?: (System.currentTimeMillis() / 1000)
+        prefs.setLastClearedSupportTime(currentNick, maxTimestamp)
+        supportMessages = emptyList()
+        showSupportClearDialog = false
+    }
+
+    var showSupportClearDialog by mutableStateOf(false)
+
+    fun openSupportClearDialog() {
+        showSupportClearDialog = true
+    }
+
+    fun dismissSupportClearDialog() {
+        showSupportClearDialog = false
+    }
+
+    fun sendSupportMessage(text: String) {
+        val currentNick = username.ifBlank { userEmail.substringBefore("@") }.ifBlank { "user" }
+        val currentMail = userEmail.ifBlank { username }
+        if (text.isBlank()) return
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            val res = authRepository.sendSupportMessage(fixedHost, currentMail, currentNick, text)
+            if (res.isSuccess) {
+                refreshNewsAndSupport()
+            }
+        }
+    }
+
     private val remainingDaysPattern = Regex("""[⏳⌛]\uFE0F?\s*(\d+)\s*[dD](?![\p{L}\p{N}])""")
     private val userInfoExpirePattern = Regex("""expire=(\d+)""", RegexOption.IGNORE_CASE)
 
@@ -1311,6 +1449,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .build()
             
         manager.notify(2000 + daysLeft, notification)
+    }
+
+    fun sendSupportPushNotification(context: Context, msgId: Int, messageText: String) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "support_alerts"
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId, 
+                "Aether Поддержка", 
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Уведомления об ответах от службы поддержки Aether"
+                enableVibration(true)
+            }
+            manager.createNotificationChannel(channel)
+        }
+        
+        val intent = android.content.Intent(context, com.example.v2rayng.MainActivity::class.java).apply {
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("navigate_to_tab", 3)
+        }
+        val pendingIntent = android.app.PendingIntent.getActivity(
+            context,
+            3000 + msgId,
+            intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(com.example.v2rayng.R.drawable.ic_qs_aether_logo)
+            .setContentTitle("Aether Поддержка")
+            .setContentText(messageText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(messageText))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+            
+        manager.notify(3000 + msgId, notification)
     }
 
     private fun parseNodes(content: String) {

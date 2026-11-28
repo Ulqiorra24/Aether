@@ -1,5 +1,6 @@
 package com.example.v2rayng
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -8,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -21,8 +23,14 @@ import com.example.v2rayng.vpn.V2RayVpnService
 import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
+    private var initialTabState = mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val targetTab = intent?.getIntExtra("navigate_to_tab", -1) ?: -1
+        if (targetTab in 0..5) {
+            initialTabState.intValue = targetTab
+        }
         thread(name = "AssetExtractor", isDaemon = true) {
             V2RayVpnService.extractAssets(applicationContext)
         }
@@ -42,11 +50,20 @@ class MainActivity : ComponentActivity() {
                         if (isSplashing) {
                             SplashScreen(onSplashFinished = { showSplash = false })
                         } else {
-                            MainScreen(viewModel)
+                            MainScreen(viewModel, initialTab = initialTabState.intValue)
                         }
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val targetTab = intent.getIntExtra("navigate_to_tab", -1)
+        if (targetTab in 0..5) {
+            initialTabState.intValue = targetTab
         }
     }
 }
