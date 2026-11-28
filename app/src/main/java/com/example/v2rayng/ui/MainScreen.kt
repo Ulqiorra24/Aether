@@ -177,6 +177,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel(), initialTab: Int = 0) {
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = Color.Transparent,
         modifier = Modifier.background(palette.background).drawBehind {
             drawRect(Brush.radialGradient(
@@ -2297,9 +2298,10 @@ fun MainScreen(viewModel: MainViewModel = viewModel(), initialTab: Int = 0) {
                                 }
                             },
                             enabled = !viewModel.isTrialLoading,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(50.dp),
+                                .heightIn(min = 50.dp),
                             shape = RoundedCornerShape(14.dp)
                         ) {
                             if (viewModel.isTrialLoading) {
@@ -2309,9 +2311,15 @@ fun MainScreen(viewModel: MainViewModel = viewModel(), initialTab: Int = 0) {
                                     strokeWidth = 2.5.dp
                                 )
                                 Spacer(Modifier.width(10.dp))
-                                Text("Активация…", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text("Активация…", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             } else {
-                                Text("Активировать бесплатно", fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1)
+                                Text(
+                                    text = "Активировать бесплатно", 
+                                    fontWeight = FontWeight.Bold, 
+                                    fontSize = 14.sp, 
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
                         }
 
@@ -2321,9 +2329,10 @@ fun MainScreen(viewModel: MainViewModel = viewModel(), initialTab: Int = 0) {
                                 showPaymentDialog = true
                             },
                             enabled = !viewModel.isTrialLoading,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(48.dp),
+                                .heightIn(min = 48.dp),
                             shape = RoundedCornerShape(14.dp),
                             border = BorderStroke(1.dp, palette.primary.copy(alpha = 0.5f))
                         ) {
@@ -2331,7 +2340,9 @@ fun MainScreen(viewModel: MainViewModel = viewModel(), initialTab: Int = 0) {
                                 text = "Перейти сразу к оплате СБП",
                                 fontWeight = FontWeight.SemiBold,
                                 color = palette.primary,
-                                fontSize = 14.sp
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
 

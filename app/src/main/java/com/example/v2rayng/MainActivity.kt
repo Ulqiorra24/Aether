@@ -27,6 +27,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         val targetTab = intent?.getIntExtra("navigate_to_tab", -1) ?: -1
         if (targetTab in 0..5) {
             initialTabState.intValue = targetTab
