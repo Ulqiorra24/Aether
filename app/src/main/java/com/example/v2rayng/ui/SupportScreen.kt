@@ -77,6 +77,7 @@ fun SupportScreen(viewModel: MainViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
             .padding(horizontal = 4.dp, vertical = 8.dp)
     ) {
         Box(

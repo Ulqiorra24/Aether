@@ -190,7 +190,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel(), initialTab: Int = 0) {
         },
         bottomBar = {
             Surface(
-                modifier = Modifier.navigationBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp),
+                modifier = Modifier.navigationBarsPadding().padding(horizontal = 10.dp, vertical = 8.dp),
                 shape = RoundedCornerShape(32.dp),
                 color = palette.surfaceVariant.copy(alpha = 0.95f),
                 border = BorderStroke(1.dp, palette.outlineVariant)
@@ -225,7 +225,14 @@ fun MainScreen(viewModel: MainViewModel = viewModel(), initialTab: Int = 0) {
                                     Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
                                 }
                             },
-                            label = { Text(title, maxLines = 1, fontSize = 10.sp) }
+                            label = { 
+                                Text(
+                                    title, 
+                                    maxLines = 1, 
+                                    fontSize = 9.sp,
+                                    softWrap = false
+                                ) 
+                            }
                         )
                     }
                 }
@@ -2304,7 +2311,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel(), initialTab: Int = 0) {
                                 Spacer(Modifier.width(10.dp))
                                 Text("Активация…", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             } else {
-                                Text("Опробовать 7 дней бесплатно", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text("Активировать бесплатно", fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1)
                             }
                         }
 
