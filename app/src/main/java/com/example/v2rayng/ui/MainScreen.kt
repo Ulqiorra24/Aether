@@ -267,10 +267,15 @@ fun MainScreen(viewModel: MainViewModel = viewModel(), initialTab: Int = 0) {
             )
         }
     ) { innerPadding ->
+        val isImeVisible = WindowInsets.isImeVisible
+        val effectiveBottomPadding = if (isImeVisible) 0.dp else innerPadding.calculateBottomPadding()
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(
+                    top = innerPadding.calculateTopPadding(),
+                    bottom = effectiveBottomPadding
+                )
                 .let { 
                     if (selectedTab == 2 || selectedTab == 3) it.fillMaxSize() 
                     else it.verticalScroll(scrollState) 
